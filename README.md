@@ -6,10 +6,10 @@ standalone PPO controller in the TA-RWARE simulator.
 
 ## Current status
 
-The project is in the design and compatibility-check phase. No Python package or
-training pipeline has been implemented yet. The next technical milestone is to
-inspect and pin TA-RWARE, run its smallest example, and verify the proposed
-quantized Gemma and LoRA setup.
+The project is in the compatibility-check phase. The pinned TA-RWARE tiny
+environment and upstream heuristic run locally; the training pipeline has not
+been implemented yet. The next technical milestone is to verify deterministic
+replay and the proposed quantized Gemma and LoRA setup.
 
 The hybrid improving on PPO is a hypothesis, not a required result. Negative and
 inconclusive findings must be reported without changing the primary metric after
@@ -44,4 +44,18 @@ evaluation.
 Exact dependency versions, Python version, TA-RWARE revision, and Gemma model ID
 will be locked by the compatibility spike. Do not install guessed versions and
 treat them as authoritative.
+
+## TA-RWARE smoke test
+
+Install the locked environment and run one 500-step heuristic episode:
+
+```powershell
+uv sync
+uv run python scripts/smoke_tarware.py --seed 0
+```
+
+Add `--render` to open the simulator viewer. On Windows, the lockfile replaces
+TA-RWARE's unbuildable pathfinder fork with the API-compatible `pyastar2d` 1.1.4
+wheel. Linux remains the authoritative experiment platform until identical
+seeded trajectories are verified across both pathfinder builds.
 

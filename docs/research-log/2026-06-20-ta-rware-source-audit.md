@@ -73,8 +73,14 @@ isolation progressed to C++ compilation. Compilation then failed under MSVC:
 - MSVC ignored those flags; and
 - `src/cpp/astar.cpp` failed to parse its use of `and` in the current toolchain.
 
-TA-RWARE could not be imported because `pyastar2d` was not built, so the runtime
-smoke episode and rendering test were not completed.
+TA-RWARE initially could not be imported because its `pyastar2d` fork was not
+built. A follow-up used the maintained `pyastar2d==1.1.4` Windows wheel, whose
+standard `astar_path` interface is the only pathfinder API TA-RWARE calls. With
+that substitution, the tiny environment completed a 500-step heuristic episode
+on Python 3.12.4 with seed 0. It exposed five observations with shapes
+`[(119,), (119,), (119,), (29,), (29,)]`, five discrete action spaces of size
+55, and returned 25.0 total reward. Rendering and cross-platform trajectory
+equivalence remain unverified.
 
 ## Observations
 
@@ -88,10 +94,10 @@ smoke episode and rendering test were not completed.
 
 ## Interpretation
 
-Native Windows is not a reliable authoritative execution environment for the
-pinned upstream code without maintaining a patch or fork of its compiled
-pathfinder dependency. That would add avoidable scope. Linux is the conservative
-target because the extension is written and configured for a GCC-like compiler.
+Native Windows can be used for local smoke testing with the maintained
+`pyastar2d==1.1.4` wheel. It is not yet an authoritative experiment environment:
+Linux is still required to compare seeded trajectories against TA-RWARE's exact
+fork before accepting the substitution as behaviorally equivalent.
 
 The observation/action interface is suitable for task-assignment research, but
 Gymnasium and Stable-Baselines3 compatibility must be provided by an adapter.
@@ -103,11 +109,12 @@ test or a carefully validated snapshot mechanism proves otherwise.
 - Pin TA-RWARE to `6109c33f7228cace1e463c81f0568b754ff5f198` for the next test.
 - Pin `pyastar2d_TARWARE` transitively to
   `ff9257df2166e659f6c0a51bfc09b119db58d3d8` rather than following its HEAD.
+- Use Python 3.12.4 and `pyastar2d==1.1.4` for local Windows smoke tests.
 - Run the authoritative simulator smoke test on Linux, initially RunPod or a
-  disposable Linux environment. Do not patch the dependency for native Windows
-  unless Linux execution also fails or local execution becomes essential.
-- Do not create the project lockfile until a working Python version and Linux
-  installation command are verified.
+  disposable Linux environment, and compare trajectories before treating the
+  pathfinder substitution as equivalent.
+- Lock the verified local dependency set while retaining the pinned TA-RWARE
+  commit.
 
 ## Problems and follow-up
 

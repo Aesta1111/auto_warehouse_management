@@ -1,0 +1,17 @@
+[project]
+name = "auto-warehouse-management"
+version = "0.1.0"
+description = "Science-fair research on PPO and LLM task assignment in TA-RWARE"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "gymnasium==0.29.1",
+    "numpy==1.26.4",
+    "pyastar2d==1.1.4",
+    "tarware @ git+https://github.com/uoe-agents/task-assignment-robotic-warehouse@6109c33f7228cace1e463c81f0568b754ff5f198",
+]
+
+[tool.uv]
+package = false
+# TA-RWARE's fork uses the same API but cannot compile with MSVC. The maintained
+# PyPI wheel provides the astar_path API TA-RWARE calls and supports Windows.
+override-dependencies = ["pyastar2d==1.1.4"]
