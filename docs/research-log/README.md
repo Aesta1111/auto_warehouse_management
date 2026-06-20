@@ -25,5 +25,4 @@ Add completed entries below in chronological order:
 
 | Date | Topic | Outcome | Entry |
 | --- | --- | --- | --- |
-| _Pending_ | Compatibility spike | Not started | _No entry yet_ |
-
+| 2026-06-20 | TA-RWARE source and installation audit | Native Windows blocked by upstream pathfinder build; Linux smoke test required | [Entry](2026-06-20-ta-rware-source-audit.md) |

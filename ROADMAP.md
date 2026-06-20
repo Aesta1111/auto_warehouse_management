@@ -20,7 +20,7 @@ workflow, roadmap, and experiment-recording rules from `README.md`.
 
 ## Phase 1: compatibility spike
 
-- [ ] Pin an immutable TA-RWARE commit and record its license.
+- [x] Pin an immutable TA-RWARE commit and record its license.
 - [ ] Determine supported Python and dependency versions.
 - [ ] Run and render the smallest meaningful TA-RWARE episode.
 - [ ] Document observations, task-assignment actions, rewards, episode ending,
