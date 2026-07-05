@@ -411,6 +411,9 @@ Major risks:
   controller; PPO produces one joint destination action for all agents.
 - Representation boundary: immutable domain records are separate from the
   deterministic numeric encoder and the future learned PPO feature extractor.
+- Simulator boundary: one project-owned TA-RWARE wrapper returns typed
+  observations, decodes model destination vectors, validates joint actions,
+  and accepts typed actions for stepping.
 - Training: freeze PPO and base LLM; train projector and LoRA adapters.
 - Improvement labels: short fixed-horizon rollouts over PPO top candidates plus a heuristic candidate.
 - Output: structured assignment JSON plus a short reason.

@@ -88,11 +88,16 @@ or filesystem formats.
 These are behavioral contracts. Exact Python signatures and fields are finalized
 after TA-RWARE inspection.
 
-### Environment adapter
+### Environment wrapper
 
-`EnvironmentAdapter` owns simulator translation and must support:
+`TarwareEnvWrapper` owns the simulator and all TA-RWARE translation. It must
+support:
 
 - `reset(seed, environment_config)` returning an initial project-owned state.
+- `decode(model_output)` converting a one-dimensional integer destination
+  vector into a validated `JointAction`.
+- `step(joint_action)` accepting only project-owned actions and returning a
+  project-owned observation plus simulator results.
 - Reading an `AssignmentContext` at each assignment event.
 - Enumerating all currently eligible robot-task pairs.
 - Validating and applying an `AssignmentDecision`.
@@ -143,9 +148,11 @@ objects. Domain and adapter code therefore use destination terminology. A later
 task abstraction may map warehouse work onto those destinations without
 changing the simulator contract.
 
-`WarehouseObservationEncoder` performs deterministic feature serialization and
-contains no learned parameters. The future PPO feature extractor consumes that
-vector and produces the learned latent used by both PPO and the hybrid.
+`WarehouseObservation.encode()` performs deterministic feature serialization
+and contains no learned parameters. The future PPO feature extractor consumes
+that vector and produces the learned latent used by both PPO and the hybrid.
+The exact contracts are documented in
+[Observation and Action Encoding](ENCODING.md).
 
 The core PPO controller is centralized: one observation produces one joint
 destination action. Busy agents must select destination zero. Per-agent masks
@@ -212,7 +219,7 @@ choice. All retries and fallbacks are measured.
 ```text
 src/warehouse_ai/
 |-- domain/          # Framework-independent records, protocols, and validation
-|-- env/             # TA-RWARE adapter and state serialization
+|-- env/             # TA-RWARE wrapper and state serialization
 |-- controllers/     # Shared controller protocol and heuristic implementation
 |-- ppo/             # PPO policy integration, training, and checkpoints
 |-- hybrid/          # Projector, prompting, LoRA, decoding, and fallback

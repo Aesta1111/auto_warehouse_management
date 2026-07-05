@@ -163,3 +163,10 @@ The representation uses controller-visible observation fields plus the
 `vehicles_busy` state exposed through TA-RWARE's info interface. It does not
 expose future requests. Full deterministic replay, snapshot/restore, rendering,
 SB3 compatibility, and Linux pathfinder equivalence remain unresolved.
+
+Commit `ca2d82d` subsequently consolidated observation and action conversion
+into one `TarwareEnvWrapper`. Domain records now use strict frozen Pydantic
+models. `WarehouseObservation.encode()` produces the documented 125-feature
+tiny-layout vector, and `TarwareEnvWrapper.decode()` accepts a five-element
+integer destination vector before validated stepping. Canonical collections
+remain tuples because their index order defines model semantics.
