@@ -2,12 +2,10 @@
 
 from warehouse_ai.env.tarware import (
     InvalidJointActionError,
-    TarwareActionAdapter,
-    TarwareObservationAdapter,
+    TarwareEnvWrapper,
 )
 
 __all__ = [
     "InvalidJointActionError",
-    "TarwareActionAdapter",
-    "TarwareObservationAdapter",
+    "TarwareEnvWrapper",
 ]

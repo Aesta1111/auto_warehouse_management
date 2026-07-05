@@ -1,7 +1,6 @@
-from dataclasses import replace
-
 import numpy as np
 import pytest
+from pydantic import ValidationError
 
 from warehouse_ai.domain import (
     AgentObservation,
@@ -9,7 +8,6 @@ from warehouse_ai.domain import (
     Position,
     ShelfObservation,
     WarehouseObservation,
-    WarehouseObservationEncoder,
 )
 
 
@@ -23,8 +21,8 @@ def observation() -> WarehouseObservation:
                 agent_id="agv-0",
                 simulator_id=1,
                 role=AgentRole.AGV,
-                position=Position(1, 2),
-                target=Position(3, 4),
+                position=Position(row=1, column=2),
+                target=Position(row=3, column=4),
                 target_destination_id=2,
                 busy=True,
                 carrying_shelf=True,
@@ -35,7 +33,7 @@ def observation() -> WarehouseObservation:
                 agent_id="picker-0",
                 simulator_id=2,
                 role=AgentRole.PICKER,
-                position=Position(2, 3),
+                position=Position(row=2, column=3),
                 target=None,
                 target_destination_id=None,
                 busy=False,
@@ -44,7 +42,7 @@ def observation() -> WarehouseObservation:
         shelves=(
             ShelfObservation(
                 destination_id=3,
-                position=Position(1, 1),
+                position=Position(row=1, column=1),
                 occupied=True,
                 requested=False,
             ),
@@ -53,11 +51,10 @@ def observation() -> WarehouseObservation:
     )
 
 
-def test_encoder_has_stable_global_feature_order() -> None:
+def test_observation_encodes_stable_global_feature_order() -> None:
     state = observation()
-    encoder = WarehouseObservationEncoder(state)
 
-    encoded = encoder.encode(state)
+    encoded = state.encode()
 
     np.testing.assert_array_equal(
         encoded,
@@ -67,27 +64,53 @@ def test_encoder_has_stable_global_feature_order() -> None:
         ),
     )
     assert encoded.dtype == np.float32
-    assert len(encoder.feature_names) == len(encoded)
+    assert state.encoded_shape == encoded.shape
+    assert len(state.feature_names) == len(encoded)
 
 
-def test_encoder_rejects_a_different_layout() -> None:
+def test_observation_is_serializable_and_collections_are_immutable() -> None:
     state = observation()
-    encoder = WarehouseObservationEncoder(state)
-    changed = replace(state, shelves=())
 
-    with pytest.raises(ValueError, match="layout"):
-        encoder.encode(changed)
+    dumped = state.model_dump(mode="json")
+
+    assert dumped["agents"][0]["role"] == "agv"
+    with pytest.raises(ValidationError, match="frozen"):
+        state.step = 1
+    with pytest.raises(TypeError):
+        state.agents[0] = state.agents[0]
+
+
+def test_ordered_list_inputs_are_stored_as_tuples() -> None:
+    state = observation()
+
+    rebuilt = WarehouseObservation(
+        **{
+            **state.model_dump(),
+            "agents": list(state.agents),
+            "shelves": list(state.shelves),
+            "goal_destination_ids": list(state.goal_destination_ids),
+        }
+    )
+
+    assert isinstance(rebuilt.agents, tuple)
+    assert isinstance(rebuilt.shelves, tuple)
+    assert isinstance(rebuilt.goal_destination_ids, tuple)
 
 
 def test_picker_rejects_agv_only_fields() -> None:
-    with pytest.raises(ValueError, match="AGV-only"):
+    with pytest.raises(ValidationError, match="AGV-only"):
         AgentObservation(
             agent_id="picker-0",
             simulator_id=1,
             role=AgentRole.PICKER,
-            position=Position(0, 0),
+            position=Position(row=0, column=0),
             target=None,
             target_destination_id=None,
             busy=False,
             carrying_shelf=True,
         )
+
+
+def test_models_reject_unknown_fields() -> None:
+    with pytest.raises(ValidationError, match="extra_forbidden"):
+        Position(row=0, column=0, depth=0)

@@ -2,51 +2,68 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 import numpy as np
 from numpy.typing import NDArray
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    NonNegativeInt,
+    field_validator,
+    model_validator,
+)
 
 
-@dataclass(frozen=True, slots=True)
-class AgentAction:
+class ActionModel(BaseModel):
+    """Strict immutable base for action records."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, arbitrary_types_allowed=True)
+
+
+class AgentAction(ActionModel):
     """One agent's requested macro destination; zero means no new destination."""
 
     agent_id: str
-    destination_id: int
-
-    def __post_init__(self) -> None:
-        if self.destination_id < 0:
-            raise ValueError("destination_id must be non-negative")
+    destination_id: NonNegativeInt
 
 
-@dataclass(frozen=True, slots=True)
-class JointAction:
-    """One simultaneous macro-action in canonical agent order."""
+class JointAction(ActionModel):
+    """One simultaneous macro-action in canonical agent order.
+
+    The tuple prevents action order from changing after validation. Each entry
+    corresponds to the agent at the same index in ``WarehouseObservation``.
+    """
 
     actions: tuple[AgentAction, ...]
 
 
-@dataclass(frozen=True, slots=True)
-class ActionMask:
+class ActionMask(ActionModel):
     """Per-agent valid destination mask with canonical agent ordering."""
 
     agent_ids: tuple[str, ...]
     values: NDArray[np.bool_]
 
-    def __post_init__(self) -> None:
-        values = np.asarray(self.values, dtype=np.bool_)
-        if values.ndim != 2:
+    @field_validator("values", mode="before")
+    @classmethod
+    def coerce_boolean_array(cls, value: object) -> NDArray[np.bool_]:
+        """Copy input into an immutable boolean NumPy array."""
+        values = np.asarray(value, dtype=np.bool_).copy()
+        values.setflags(write=False)
+        return values
+
+    @model_validator(mode="after")
+    def validate_shape(self) -> ActionMask:
+        """Validate mask axes and the always-valid no-op column."""
+        if self.values.ndim != 2:
             raise ValueError("action mask must have shape [agent, destination]")
-        if values.shape[0] != len(self.agent_ids):
+        if self.values.shape[0] != len(self.agent_ids):
             raise ValueError("action mask row count must match agent_ids")
         if len(set(self.agent_ids)) != len(self.agent_ids):
             raise ValueError("action mask agent_ids must be unique")
-        if values.shape[1] < 1 or not np.all(values[:, 0]):
+        if self.values.shape[1] < 1 or not np.all(self.values[:, 0]):
             raise ValueError("destination zero must be valid for every agent")
-        values.setflags(write=False)
-        object.__setattr__(self, "values", values)
+        return self
 
     @property
     def destination_count(self) -> int:
+        """Number of destination choices including no-op."""
         return int(self.values.shape[1])

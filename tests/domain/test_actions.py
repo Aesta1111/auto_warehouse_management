@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+from pydantic import ValidationError
 
 from warehouse_ai.domain import ActionMask, AgentAction
 
@@ -17,5 +18,5 @@ def test_action_mask_is_boolean_and_read_only() -> None:
 
 
 def test_agent_action_rejects_negative_destination() -> None:
-    with pytest.raises(ValueError, match="non-negative"):
+    with pytest.raises(ValidationError, match="greater than or equal to 0"):
         AgentAction(agent_id="agv-0", destination_id=-1)

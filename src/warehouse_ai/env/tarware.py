@@ -1,11 +1,14 @@
-"""Conversion between pinned TA-RWARE objects and project-owned records."""
+"""Project-owned wrapper around the pinned TA-RWARE environment."""
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 from typing import Any
 
+import gymnasium as gym
 import numpy as np
+import tarware  # noqa: F401 - importing registers TA-RWARE environments
+from numpy.typing import ArrayLike
 from tarware.definitions import Action, AgentType, CollisionLayers
 
 from warehouse_ai.domain import (
@@ -21,17 +24,165 @@ from warehouse_ai.domain import (
 
 
 class InvalidJointActionError(ValueError):
-    """Raised when a joint action cannot be safely submitted to TA-RWARE."""
+    """Raised when a model output or action cannot be safely submitted."""
 
 
 def _agent_id(role: AgentRole, role_index: int) -> str:
     return f"{role.value}-{role_index}"
 
 
-class TarwareObservationAdapter:
-    """Read TA-RWARE's observable global state into canonical records."""
+class TarwareEnvWrapper:
+    """Expose TA-RWARE through project-owned observation and action classes.
 
-    def observe(self, warehouse: Any) -> WarehouseObservation:
+    ``reset`` and ``step`` return ``WarehouseObservation`` instead of
+    TA-RWARE's heterogeneous per-agent vectors. ``step`` accepts only a
+    validated ``JointAction``. Use ``decode`` to turn PPO-style raw model output
+    into that action.
+    """
+
+    def __init__(self, environment_id: str) -> None:
+        self.environment_id = environment_id
+        self._env = gym.make(environment_id, disable_env_checker=True)
+        self._warehouse = self._env.unwrapped
+        self._observation: WarehouseObservation | None = None
+
+    @property
+    def unwrapped(self) -> Any:
+        """Underlying TA-RWARE instance for compatibility tests only."""
+        return self._warehouse
+
+    @property
+    def observation(self) -> WarehouseObservation:
+        """Most recent observation, requiring ``reset`` first."""
+        if self._observation is None:
+            raise RuntimeError("reset must be called before reading observation")
+        return self._observation
+
+    @property
+    def action_mask(self) -> ActionMask:
+        """Current valid destinations, including project-level busy handling."""
+        observation = self.observation
+        raw_mask = np.asarray(
+            self._warehouse.compute_valid_action_masks(),
+            dtype=np.bool_,
+        )
+        expected_shape = (len(observation.agents), int(self._warehouse.action_size))
+        if raw_mask.shape != expected_shape:
+            raise RuntimeError(
+                f"TA-RWARE returned mask shape {raw_mask.shape}, expected {expected_shape}"
+            )
+        for row, agent in enumerate(observation.agents):
+            if agent.busy:
+                raw_mask[row, :] = False
+                raw_mask[row, 0] = True
+        return ActionMask(
+            agent_ids=tuple(agent.agent_id for agent in observation.agents),
+            values=raw_mask,
+        )
+
+    def reset(self, *, seed: int) -> WarehouseObservation:
+        """Reset with an explicit seed and return the canonical observation."""
+        self._warehouse.reset(seed=seed)
+        self._observation = self._read_observation()
+        return self._observation
+
+    def decode(self, model_output: ArrayLike) -> JointAction:
+        """Decode a raw model action vector into a validated ``JointAction``.
+
+        The required shape is ``(num_agents,)``. Element ``i`` is the integer
+        destination ID for observation agent ``i``: zero means no-op, goal IDs
+        follow, then shelf-location IDs. For the tiny environment the shape is
+        ``(5,)`` and every value is in ``[0, 54]``. Floating-point values,
+        logits, probabilities, nested/batched arrays, masked destinations, and
+        same-role destination conflicts are rejected.
+        """
+        observation = self.observation
+        raw = np.asarray(model_output)
+        expected_shape = (len(observation.agents),)
+        if raw.shape != expected_shape:
+            raise InvalidJointActionError(
+                f"model output shape {raw.shape} does not match {expected_shape}"
+            )
+        if not np.issubdtype(raw.dtype, np.integer):
+            raise InvalidJointActionError("model output must contain integer destination IDs")
+        if np.any(raw < 0):
+            raise InvalidJointActionError("model output destination IDs cannot be negative")
+
+        action = JointAction(
+            actions=tuple(
+                AgentAction(
+                    agent_id=agent.agent_id,
+                    destination_id=int(destination_id),
+                )
+                for agent, destination_id in zip(observation.agents, raw, strict=True)
+            )
+        )
+        self._validate(action, self.action_mask)
+        return action
+
+    def no_op(self) -> JointAction:
+        """Return the canonical all-agent no-op action."""
+        return self.decode(np.zeros(len(self.observation.agents), dtype=np.int64))
+
+    def step(
+        self,
+        action: JointAction,
+    ) -> tuple[
+        WarehouseObservation,
+        list[float],
+        list[bool],
+        list[bool],
+        dict[str, Any],
+    ]:
+        """Validate and apply one joint action, then return project state."""
+        raw_action = self._validate(action, self.action_mask)
+        _, rewards, terminated, truncated, info = self._warehouse.step(raw_action)
+        self._observation = self._read_observation()
+        return self._observation, rewards, terminated, truncated, info
+
+    def render(self, mode: str = "human") -> Any:
+        """Delegate rendering to the pinned TA-RWARE environment."""
+        return self._warehouse.render(mode=mode)
+
+    def close(self) -> None:
+        """Release TA-RWARE rendering and environment resources."""
+        self._env.close()
+
+    def _validate(self, action: JointAction, mask: ActionMask) -> list[int]:
+        observation = self.observation
+        expected_ids = tuple(agent.agent_id for agent in observation.agents)
+        actual_ids = tuple(item.agent_id for item in action.actions)
+        if actual_ids != expected_ids:
+            raise InvalidJointActionError(
+                f"joint action agents {actual_ids} do not match canonical order {expected_ids}"
+            )
+        if mask.agent_ids != expected_ids:
+            raise InvalidJointActionError("action mask agent ordering does not match observation")
+
+        role_by_id = {agent.agent_id: agent.role for agent in observation.agents}
+        selected_by_role: set[tuple[AgentRole, int]] = set()
+        result: list[int] = []
+        for row, item in enumerate(action.actions):
+            if item.destination_id >= mask.destination_count:
+                raise InvalidJointActionError(
+                    f"{item.agent_id} destination {item.destination_id} is out of range"
+                )
+            if not bool(mask.values[row, item.destination_id]):
+                raise InvalidJointActionError(
+                    f"{item.agent_id} destination {item.destination_id} is masked"
+                )
+            if item.destination_id != 0:
+                selection = (role_by_id[item.agent_id], int(item.destination_id))
+                if selection in selected_by_role:
+                    raise InvalidJointActionError(
+                        "agents with the same role cannot select the same destination"
+                    )
+                selected_by_role.add(selection)
+            result.append(int(item.destination_id))
+        return result
+
+    def _read_observation(self) -> WarehouseObservation:
+        warehouse = self._warehouse
         role_counts = {AgentRole.AGV: 0, AgentRole.PICKER: 0}
         agents: list[AgentObservation] = []
         requested_shelf_ids = {shelf.id for shelf in warehouse.request_queue}
@@ -100,73 +251,3 @@ class TarwareObservationAdapter:
         if agent_type is AgentType.PICKER:
             return AgentRole.PICKER
         raise ValueError(f"unsupported TA-RWARE agent type: {agent_type!r}")
-
-
-class TarwareActionAdapter:
-    """Build masks and validate joint destination actions."""
-
-    def action_mask(
-        self,
-        warehouse: Any,
-        observation: WarehouseObservation,
-    ) -> ActionMask:
-        raw_mask = np.asarray(warehouse.compute_valid_action_masks(), dtype=np.bool_)
-        expected_shape = (len(observation.agents), int(warehouse.action_size))
-        if raw_mask.shape != expected_shape:
-            raise RuntimeError(
-                f"TA-RWARE returned mask shape {raw_mask.shape}, expected {expected_shape}"
-            )
-        raw_mask = raw_mask.copy()
-        for row, agent in enumerate(observation.agents):
-            if agent.busy:
-                raw_mask[row, :] = False
-                raw_mask[row, 0] = True
-        return ActionMask(
-            agent_ids=tuple(agent.agent_id for agent in observation.agents),
-            values=raw_mask,
-        )
-
-    def to_tarware(
-        self,
-        action: JointAction,
-        observation: WarehouseObservation,
-        mask: ActionMask,
-    ) -> list[int]:
-        expected_ids = tuple(agent.agent_id for agent in observation.agents)
-        actual_ids = tuple(item.agent_id for item in action.actions)
-        if actual_ids != expected_ids:
-            raise InvalidJointActionError(
-                f"joint action agents {actual_ids} do not match canonical order {expected_ids}"
-            )
-        if mask.agent_ids != expected_ids:
-            raise InvalidJointActionError("action mask agent ordering does not match observation")
-
-        role_by_id = {agent.agent_id: agent.role for agent in observation.agents}
-        selected_by_role: set[tuple[AgentRole, int]] = set()
-        result: list[int] = []
-        for row, item in enumerate(action.actions):
-            if item.destination_id >= mask.destination_count:
-                raise InvalidJointActionError(
-                    f"{item.agent_id} destination {item.destination_id} is out of range"
-                )
-            if not bool(mask.values[row, item.destination_id]):
-                raise InvalidJointActionError(
-                    f"{item.agent_id} destination {item.destination_id} is masked"
-                )
-            if item.destination_id != 0:
-                selection = (role_by_id[item.agent_id], item.destination_id)
-                if selection in selected_by_role:
-                    raise InvalidJointActionError(
-                        "agents with the same role cannot select the same destination"
-                    )
-                selected_by_role.add(selection)
-            result.append(item.destination_id)
-        return result
-
-    def no_op(self, observation: WarehouseObservation) -> JointAction:
-        return JointAction(
-            actions=tuple(
-                AgentAction(agent_id=agent.agent_id, destination_id=0)
-                for agent in observation.agents
-            )
-        )

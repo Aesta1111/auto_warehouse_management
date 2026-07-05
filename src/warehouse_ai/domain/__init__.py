@@ -11,7 +11,6 @@ from warehouse_ai.domain.observations import (
     Position,
     ShelfObservation,
     WarehouseObservation,
-    WarehouseObservationEncoder,
 )
 
 __all__ = [
@@ -23,5 +22,4 @@ __all__ = [
     "Position",
     "ShelfObservation",
     "WarehouseObservation",
-    "WarehouseObservationEncoder",
 ]

@@ -6,6 +6,7 @@ requires-python = ">=3.12,<3.13"
 dependencies = [
     "gymnasium==0.29.1",
     "numpy==1.26.4",
+    "pydantic>=2.11.7,<3",
     "pyastar2d==1.1.4",
     "tarware @ git+https://github.com/uoe-agents/task-assignment-robotic-warehouse@6109c33f7228cace1e463c81f0568b754ff5f198",
 ]
