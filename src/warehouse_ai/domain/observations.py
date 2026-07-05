@@ -83,8 +83,7 @@ class WarehouseObservation(DomainModel):
     ``encode`` returns one float32 vector with shape
     ``(7 * num_agvs + 4 * num_pickers + 2 * num_shelf_locations,)``.
     Agents are ordered by ascending simulator ID, followed by shelf locations
-    ordered by destination ID. See ``docs/ENCODING.md`` for the complete
-    feature table.
+    ordered by destination ID.
 
     Tuples are intentional here. Agent and shelf order defines model feature
     meaning, so allowing callers to mutate these collections after validation
@@ -148,11 +147,23 @@ class WarehouseObservation(DomainModel):
     def encode(self) -> NDArray[np.float32]:
         """Encode this observation as the deterministic model input vector.
 
-        Boolean fields become 0.0 or 1.0. Coordinates remain unnormalized and
-        use row-column order. An agent without a target receives target
-        coordinates ``[0.0, 0.0]``, matching pinned TA-RWARE global-observation
-        behavior. The action mask is deliberately not included; models receive
-        it separately when selecting valid destinations.
+        Returns:
+            A one-dimensional ``float32`` array with shape
+            ``(7 * AGVs + 4 * pickers + 2 * shelf locations,)``. The primary
+            tiny layout therefore produces shape ``(125,)``.
+
+        Feature order:
+            Agents appear by ascending simulator ID. Each AGV contributes
+            ``[carrying_shelf, carrying_requested_shelf, toggling_load,
+            row, column, target_row, target_column]``. Each picker contributes
+            ``[row, column, target_row, target_column]``. Shelf locations then
+            appear by ascending destination ID and contribute
+            ``[occupied, requested]``.
+
+        Boolean fields become 0.0 or 1.0. Coordinates are unnormalized and use
+        row-column order. Missing targets become ``[0.0, 0.0]``, matching the
+        pinned TA-RWARE global observation. The action mask is not included;
+        models receive it separately during action selection.
         """
         features: list[float] = []
         for agent in self.agents:

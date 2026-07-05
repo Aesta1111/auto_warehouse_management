@@ -90,11 +90,19 @@ class TarwareEnvWrapper:
         """Decode a raw model action vector into a validated ``JointAction``.
 
         The required shape is ``(num_agents,)``. Element ``i`` is the integer
-        destination ID for observation agent ``i``: zero means no-op, goal IDs
-        follow, then shelf-location IDs. For the tiny environment the shape is
-        ``(5,)`` and every value is in ``[0, 54]``. Floating-point values,
-        logits, probabilities, nested/batched arrays, masked destinations, and
-        same-role destination conflicts are rejected.
+        destination ID for observation agent ``i``. Agents use canonical
+        observation order: ascending simulator ID, which is
+        ``[agv-0, agv-1, agv-2, picker-0, picker-1]`` in the tiny environment.
+
+        Destination zero means no-op, followed by goal IDs and then fixed
+        shelf-location IDs. The tiny environment requires shape ``(5,)`` with
+        every value in ``[0, 54]``. This method expects selected integer IDs,
+        not logits or probabilities. Floating-point values, nested/batched
+        arrays, masked destinations, and same-role destination conflicts are
+        rejected.
+
+        Returns:
+            A validated ``JointAction`` ready for ``step``.
         """
         observation = self.observation
         raw = np.asarray(model_output)

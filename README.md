@@ -21,8 +21,6 @@ evaluation.
   system design, risks, and decisions.
 - [Architecture](docs/ARCHITECTURE.md): proposed components, data flow,
   boundaries, and future package structure.
-- [Observation and action encoding](docs/ENCODING.md): model input features,
-  output-vector shape, destination IDs, and validation.
 - [Development workflow](docs/WORKFLOW.md): local and cloud workflows, Git,
   quality checks, artifacts, secrets, and experiment reproducibility.
 - [Roadmap](ROADMAP.md): ordered phases, checklists, exit gates, and stretch

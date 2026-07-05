@@ -151,8 +151,7 @@ changing the simulator contract.
 `WarehouseObservation.encode()` performs deterministic feature serialization
 and contains no learned parameters. The future PPO feature extractor consumes
 that vector and produces the learned latent used by both PPO and the hybrid.
-The exact contracts are documented in
-[Observation and Action Encoding](ENCODING.md).
+Its docstring defines the model-facing feature contract.
 
 The core PPO controller is centralized: one observation produces one joint
 destination action. Busy agents must select destination zero. Per-agent masks
