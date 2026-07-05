@@ -23,7 +23,7 @@ workflow, roadmap, and experiment-recording rules from `README.md`.
 - [x] Pin an immutable TA-RWARE commit and record its license.
 - [x] Determine a working local Python and dependency set.
 - [x] Run the smallest meaningful TA-RWARE episode; rendering remains to verify.
-- [ ] Document observations, task-assignment actions, rewards, episode ending,
+- [x] Document observations, task-assignment actions, rewards, episode ending,
   valid-action handling, and multi-agent behavior.
 - [ ] Test deterministic reset and replay with fixed seeds.
 - [ ] Test simulator snapshot/restore; document the replay fallback if needed.
@@ -42,7 +42,7 @@ has not passed.
 
 ## Phase 2: runnable project foundation
 
-- [ ] Add `pyproject.toml`, the `uv` lockfile, package metadata, and dependency
+- [x] Add `pyproject.toml`, the `uv` lockfile, package metadata, and dependency
   groups.
 - [ ] Add Typer command composition and YAML/Pydantic config loading.
 - [ ] Add framework-independent domain records and controller protocols.

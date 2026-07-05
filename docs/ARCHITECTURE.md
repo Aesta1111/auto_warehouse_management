@@ -118,7 +118,13 @@ The hybrid uses deterministic decoding where the selected model supports it.
 
 ### Domain records
 
-- `WarehouseState`: controller-visible state at a decision event.
+- `WarehouseObservation`: canonical global state shared by every controller,
+  containing ordered agent and shelf-location records.
+- `AgentAction`: one agent's macro destination; destination zero means no new
+  assignment.
+- `JointAction`: exactly one `AgentAction` for every agent in canonical order.
+- `ActionMask`: the per-agent destination mask, strengthened by project-owned
+  joint-action validation.
 - `EligibleAssignment`: one currently legal robot-task pairing.
 - `AssignmentContext`: state, eligible assignments, episode step, and identifiers
   required for logging.
@@ -131,6 +137,21 @@ The hybrid uses deterministic decoding where the selected model supports it.
 
 Identifiers must remain stable within an episode and must serialize without
 Python-specific object representations.
+
+TA-RWARE macro-actions select destination locations, not persistent task
+objects. Domain and adapter code therefore use destination terminology. A later
+task abstraction may map warehouse work onto those destinations without
+changing the simulator contract.
+
+`WarehouseObservationEncoder` performs deterministic feature serialization and
+contains no learned parameters. The future PPO feature extractor consumes that
+vector and produces the learned latent used by both PPO and the hybrid.
+
+The core PPO controller is centralized: one observation produces one joint
+destination action. Busy agents must select destination zero. Per-agent masks
+are necessary but not sufficient; validation also rejects same-role agents
+selecting the same nonzero destination in one joint action. An AGV and picker
+may share a shelf destination because that is required for cooperation.
 
 ### Run manifest
 

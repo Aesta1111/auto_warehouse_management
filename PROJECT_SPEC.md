@@ -407,6 +407,10 @@ Major risks:
 - Compute: cloud; under USD 50.
 - LLM: quantized Gemma-family 12B candidate from Hugging Face, with a smaller fine-tuned model as fallback.
 - Architecture: projected PPO latent tokens plus readable state and constraints.
+- Controller input: one centralized, typed global observation shared by every
+  controller; PPO produces one joint destination action for all agents.
+- Representation boundary: immutable domain records are separate from the
+  deterministic numeric encoder and the future learned PPO feature extractor.
 - Training: freeze PPO and base LLM; train projector and LoRA adapters.
 - Improvement labels: short fixed-horizon rollouts over PPO top candidates plus a heuristic candidate.
 - Output: structured assignment JSON plus a short reason.

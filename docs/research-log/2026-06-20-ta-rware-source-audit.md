@@ -124,3 +124,42 @@ test or a carefully validated snapshot mechanism proves otherwise.
 3. Test a thin Gymnasium wrapper suitable for Stable-Baselines3.
 4. Test deterministic replay as the provisional substitute for state cloning.
 5. Audit the exact Gemma checkpoint separately; it was not part of this slice.
+
+## 2026-07-05 observation and action follow-up
+
+Project commits `52f33d2` and `8242cd0` added typed domain records, a
+deterministic feature encoder, TA-RWARE conversion, action masks, and joint
+action validation.
+
+Additional verified interface details:
+
+- Partial observations are heterogeneous: each AGV receives 119 features and
+  each picker receives 29. The global observation is 125 features for every
+  agent in the tiny 3-AGV/2-picker layout.
+- Global features contain, in order, each AGV's carrying/request/loading flags,
+  position and target; each picker's position and target; then occupied and
+  requested flags for each fixed shelf location.
+- TA-RWARE orders each global vector with the observing agent first. The
+  project-owned encoder instead uses ascending simulator agent ID so one
+  centralized vector has stable semantics. Its values exactly matched
+  TA-RWARE's agent-1 global vector at seeded reset.
+- Each environment action is five integers. Zero is no-op; IDs `1..num_goals`
+  select goal locations; remaining IDs select fixed shelf locations.
+- Actions sent to busy agents are silently ignored by TA-RWARE. The project
+  mask permits only zero for busy agents so ignored actions cannot be recorded
+  as real decisions.
+- TA-RWARE's computed mask covers per-agent legality but cannot reject two
+  same-role agents choosing the same destination simultaneously. Project-owned
+  validation rejects that conflict while allowing an AGV and picker to
+  coordinate at the same shelf.
+- Resetting with seed 0 reproduced identical typed observations and encoded
+  features. A five-step no-op action trace also replayed identically. This is a
+  narrow determinism check, not yet proof of full trajectory replay.
+- Twelve unit/integration tests passed, and the existing seed-0 heuristic smoke
+  remained 500 steps, 23 deliveries, 9 clashes, 0 stuck events, and total
+  return 25.0.
+
+The representation uses controller-visible observation fields plus the
+`vehicles_busy` state exposed through TA-RWARE's info interface. It does not
+expose future requests. Full deterministic replay, snapshot/restore, rendering,
+SB3 compatibility, and Linux pathfinder equivalence remain unresolved.
