@@ -10,8 +10,25 @@ dependencies = [
     "tarware @ git+https://github.com/uoe-agents/task-assignment-robotic-warehouse@6109c33f7228cace1e463c81f0568b754ff5f198",
 ]
 
+[dependency-groups]
+dev = [
+    "pytest>=8.4.1,<9",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/warehouse_ai"]
+
 [tool.uv]
-package = false
 # TA-RWARE's fork uses the same API but cannot compile with MSVC. The maintained
 # PyPI wheel provides the astar_path API TA-RWARE calls and supports Windows.
 override-dependencies = ["pyastar2d==1.1.4"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
