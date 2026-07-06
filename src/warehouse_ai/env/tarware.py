@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, cast
 
 import gymnasium as gym
 import numpy as np
 import tarware  # noqa: F401 - importing registers TA-RWARE environments
 from numpy.typing import ArrayLike
 from tarware.definitions import Action, AgentType, CollisionLayers
+from tarware.warehouse import Warehouse
 
 from warehouse_ai.domain import (
     ActionMask,
@@ -43,11 +44,11 @@ class TarwareEnvWrapper:
     def __init__(self, environment_id: str) -> None:
         self.environment_id = environment_id
         self._env = gym.make(environment_id, disable_env_checker=True)
-        self._warehouse = self._env.unwrapped
+        self._warehouse = cast(Warehouse, self._env.unwrapped)
         self._observation: WarehouseObservation | None = None
 
     @property
-    def unwrapped(self) -> Any:
+    def unwrapped(self) -> Warehouse:
         """Underlying TA-RWARE instance for compatibility tests only."""
         return self._warehouse
 
@@ -82,7 +83,7 @@ class TarwareEnvWrapper:
 
     def reset(self, *, seed: int) -> WarehouseObservation:
         """Reset with an explicit seed and return the canonical observation."""
-        self._warehouse.reset(seed=seed)
+        _ = self._warehouse.reset(seed=seed)
         self._observation = self._read_observation()
         return self._observation
 
@@ -125,7 +126,7 @@ class TarwareEnvWrapper:
                 for agent, destination_id in zip(observation.agents, raw, strict=True)
             )
         )
-        self._validate(action, self.action_mask)
+        _ = self._validate(action, self.action_mask)
         return action
 
     def no_op(self) -> JointAction:

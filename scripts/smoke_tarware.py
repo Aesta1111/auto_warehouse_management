@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import argparse
 import json
-from typing import Any
+from typing import Any, cast
 
 import gymnasium as gym
+import numpy as np
 import tarware  # noqa: F401 - importing registers the TA-RWARE environments
+from numpy.typing import NDArray
 from tarware.heuristic import heuristic_episode
+from tarware.warehouse import Warehouse
 
 ENVIRONMENT_ID = "tarware-tiny-3agvs-2pickers-partialobs-v1"
 
@@ -31,12 +34,18 @@ def sum_metric(infos: list[dict[str, Any]], name: str) -> int:
 def main() -> None:
     args = parse_args()
     env = gym.make(ENVIRONMENT_ID, disable_env_checker=True)
-    warehouse = env.unwrapped
+    warehouse = cast(Warehouse, env.unwrapped)
 
     try:
-        observations = warehouse.reset(seed=args.seed)
+        observations = cast(
+            tuple[NDArray[np.floating[Any]], ...],
+            warehouse.reset(seed=args.seed),
+        )
         observation_shapes = [list(observation.shape) for observation in observations]
-        action_sizes = [int(space.n) for space in warehouse.action_space]
+        action_space = cast(gym.spaces.Tuple, warehouse.action_space)
+        action_sizes = [
+            int(cast(gym.spaces.Discrete, space).n) for space in action_space.spaces
+        ]
         infos, total_return, agent_returns = heuristic_episode(
             warehouse,
             render=args.render,

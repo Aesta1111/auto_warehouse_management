@@ -1,3 +1,5 @@
+from typing import cast
+
 import numpy as np
 import pytest
 from pydantic import ValidationError
@@ -77,7 +79,7 @@ def test_observation_is_serializable_and_collections_are_immutable() -> None:
     with pytest.raises(ValidationError, match="frozen"):
         state.step = 1
     with pytest.raises(TypeError):
-        state.agents[0] = state.agents[0]
+        cast(list[AgentObservation], state.agents)[0] = state.agents[0]
 
 
 def test_ordered_list_inputs_are_stored_as_tuples() -> None:
@@ -113,4 +115,4 @@ def test_picker_rejects_agv_only_fields() -> None:
 
 def test_models_reject_unknown_fields() -> None:
     with pytest.raises(ValidationError, match="extra_forbidden"):
-        Position(row=0, column=0, depth=0)
+        Position.model_validate({"row": 0, "column": 0, "depth": 0})
