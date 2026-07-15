@@ -1,0 +1,74 @@
+{
+  "all_checks_passed": true,
+  "checkpoints": [
+    {
+      "replay_exact": true,
+      "snapshot_exact": false,
+      "snapshot_independent": true,
+      "step": 100,
+      "suffix_steps": 50
+    },
+    {
+      "replay_exact": true,
+      "snapshot_exact": false,
+      "snapshot_independent": true,
+      "step": 250,
+      "suffix_steps": 50
+    },
+    {
+      "replay_exact": true,
+      "snapshot_exact": false,
+      "snapshot_independent": true,
+      "step": 400,
+      "suffix_steps": 50
+    }
+  ],
+  "environment": "tarware-tiny-3agvs-2pickers-partialobs-v1",
+  "render_requested": false,
+  "replay_fallback_selected": true,
+  "schema_version": 1,
+  "seeds": [
+    {
+      "actions_exact_repeat": true,
+      "exact_repeat": true,
+      "repeat_trace_sha256": "4be1cf2d92f7b9256b2421ad8e3f9d97381c1db062fba8bd64972a2a24341677",
+      "seed": 0,
+      "steps": 500,
+      "trace_sha256": "4be1cf2d92f7b9256b2421ad8e3f9d97381c1db062fba8bd64972a2a24341677"
+    },
+    {
+      "actions_exact_repeat": true,
+      "exact_repeat": true,
+      "repeat_trace_sha256": "7c0a2f181f6782131c8a7c4716f2c8341117fd6574aaacf8c1ec7da0bb4d2d45",
+      "seed": 1,
+      "steps": 500,
+      "trace_sha256": "7c0a2f181f6782131c8a7c4716f2c8341117fd6574aaacf8c1ec7da0bb4d2d45"
+    },
+    {
+      "actions_exact_repeat": true,
+      "exact_repeat": true,
+      "repeat_trace_sha256": "ed3eb47ffaab1adca6786bb0ed05f53050a33bb8963b4f7b679d75ffa4078f4b",
+      "seed": 2,
+      "steps": 500,
+      "trace_sha256": "ed3eb47ffaab1adca6786bb0ed05f53050a33bb8963b4f7b679d75ffa4078f4b"
+    },
+    {
+      "actions_exact_repeat": true,
+      "exact_repeat": true,
+      "repeat_trace_sha256": "8c7703ce407a854292d41717c7b7abd9d5816d7cb7ae997415d26b24a57de702",
+      "seed": 3,
+      "steps": 500,
+      "trace_sha256": "8c7703ce407a854292d41717c7b7abd9d5816d7cb7ae997415d26b24a57de702"
+    },
+    {
+      "actions_exact_repeat": true,
+      "exact_repeat": true,
+      "repeat_trace_sha256": "31a86ca9f4a9608ffd85744c6b62088c391df46220c5e86e4629234a0bc10046",
+      "seed": 4,
+      "steps": 500,
+      "trace_sha256": "31a86ca9f4a9608ffd85744c6b62088c391df46220c5e86e4629234a0bc10046"
+    }
+  ],
+  "snapshot_and_replay_seed": 0,
+  "snapshot_supported": false
+}

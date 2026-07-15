@@ -86,9 +86,7 @@ def test_busy_agent_only_accepts_no_op(wrapped_env) -> None:
     raw_mask = wrapped_env.unwrapped.compute_valid_action_masks()
     destination = int(np.flatnonzero(raw_mask[0, 1:])[0] + 1)
     wrapped_env.step(
-        wrapped_env.decode(
-            np.asarray([destination, 0, 0, 0, 0], dtype=np.int64)
-        )
+        wrapped_env.decode(np.asarray([destination, 0, 0, 0, 0], dtype=np.int64))
     )
 
     assert wrapped_env.observation.agents[0].busy
@@ -106,6 +104,27 @@ def test_decode_rejects_same_role_destination_conflict(wrapped_env) -> None:
         wrapped_env.decode(
             np.asarray([destination, destination, 0, 0, 0], dtype=np.int64)
         )
+
+
+def test_project_logs_and_repairs_same_role_destination_conflict(wrapped_env) -> None:
+    mask = wrapped_env.action_mask.values
+    common = np.flatnonzero(mask[0] & mask[1])
+    destination = int(common[common != 0][0])
+
+    projected = wrapped_env.project(
+        np.asarray([destination, destination, 0, 0, 0], dtype=np.int64)
+    )
+
+    assert projected.requested_destinations == (destination, destination, 0, 0, 0)
+    assert tuple(action.destination_id for action in projected.action.actions) == (
+        destination,
+        0,
+        0,
+        0,
+        0,
+    )
+    assert len(projected.repairs) == 1
+    assert projected.repairs[0].agent_id == "agv-1"
 
 
 def test_step_rejects_wrong_agent_order(wrapped_env) -> None:

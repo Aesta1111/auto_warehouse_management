@@ -107,6 +107,11 @@ support:
 - Snapshot/restore for candidate rollouts, or a deterministic replay substitute
   if TA-RWARE cannot clone state.
 
+The compatibility spike rejected pickle snapshots: independent clones diverged
+under identical recorded action suffixes. The selected substitute is reset from
+an explicit seed plus replay of the recorded action prefix, followed by an
+observable-state equality check.
+
 No controller may access hidden future orders or internal simulator state that is
 unavailable to the other controllers.
 
@@ -187,7 +192,12 @@ locked before final experiments. It cannot use privileged state.
 Stable-Baselines3 is the default implementation. The policy integration must
 expose the frozen encoder latent, valid-action-masked scores, preferred action,
 and value estimate without maintaining a second independently trained PPO model.
-Action masking support must be tested before committing to a policy class.
+SB3-Contrib's `MaskablePPO` accepts the centralized `MultiDiscrete([55] * 5)`
+space and a flattened 275-value mask. Its mask is component-wise and cannot
+express same-role duplicate destinations. The PPO-only adapter therefore keeps
+the lowest canonical agent's choice, changes later duplicates to no-op, and logs
+each repair. Strict controller decisions continue through rejection-based
+validation.
 
 ### Rollout label generator
 

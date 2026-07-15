@@ -8,17 +8,19 @@ from typing import Any, cast
 import gymnasium as gym
 import numpy as np
 import tarware  # noqa: F401 - importing registers TA-RWARE environments
-from numpy.typing import ArrayLike
+from numpy.typing import ArrayLike, NDArray
 from tarware.definitions import Action, AgentType, CollisionLayers
 from tarware.warehouse import Warehouse
 
 from warehouse_ai.domain import (
     ActionMask,
+    ActionRepair,
     AgentAction,
     AgentObservation,
     AgentRole,
     JointAction,
     Position,
+    ProjectedJointAction,
     ShelfObservation,
     WarehouseObservation,
 )
@@ -106,16 +108,7 @@ class TarwareEnvWrapper:
             A validated ``JointAction`` ready for ``step``.
         """
         observation = self.observation
-        raw = np.asarray(model_output)
-        expected_shape = (len(observation.agents),)
-        if raw.shape != expected_shape:
-            raise InvalidJointActionError(
-                f"model output shape {raw.shape} does not match {expected_shape}"
-            )
-        if not np.issubdtype(raw.dtype, np.integer):
-            raise InvalidJointActionError("model output must contain integer destination IDs")
-        if np.any(raw < 0):
-            raise InvalidJointActionError("model output destination IDs cannot be negative")
+        raw = self._validate_raw_output(model_output)
 
         action = JointAction(
             actions=tuple(
@@ -128,6 +121,54 @@ class TarwareEnvWrapper:
         )
         _ = self._validate(action, self.action_mask)
         return action
+
+    def project(self, model_output: ArrayLike) -> ProjectedJointAction:
+        """Project only cross-agent conflicts into safe, logged no-ops.
+
+        This compatibility path exists for algorithms whose ``MultiDiscrete``
+        masks cannot represent dependencies between action components. Shape,
+        dtype, range, and ordinary per-agent mask violations are still errors.
+        For a duplicate nonzero destination among agents with the same role,
+        canonical order wins and every later selection becomes a no-op.
+        """
+        observation = self.observation
+        raw = self._validate_raw_output(model_output)
+        mask = self.action_mask
+        selected_by_role: set[tuple[AgentRole, int]] = set()
+        applied = raw.copy()
+        repairs: list[ActionRepair] = []
+
+        for row, (agent, destination) in enumerate(
+            zip(observation.agents, raw, strict=True)
+        ):
+            destination_id = int(destination)
+            if destination_id >= mask.destination_count:
+                raise InvalidJointActionError(
+                    f"{agent.agent_id} destination {destination_id} is out of range"
+                )
+            if not bool(mask.values[row, destination_id]):
+                raise InvalidJointActionError(
+                    f"{agent.agent_id} destination {destination_id} is masked"
+                )
+            selection = (agent.role, destination_id)
+            if destination_id != 0 and selection in selected_by_role:
+                applied[row] = 0
+                repairs.append(
+                    ActionRepair(
+                        agent_id=agent.agent_id,
+                        requested_destination_id=destination_id,
+                        reason="same_role_destination_conflict",
+                    )
+                )
+            elif destination_id != 0:
+                selected_by_role.add(selection)
+
+        action = self.decode(applied)
+        return ProjectedJointAction(
+            requested_destinations=tuple(int(value) for value in raw),
+            action=action,
+            repairs=tuple(repairs),
+        )
 
     def no_op(self) -> JointAction:
         """Return the canonical all-agent no-op action."""
@@ -157,6 +198,24 @@ class TarwareEnvWrapper:
         """Release TA-RWARE rendering and environment resources."""
         self._env.close()
 
+    def _validate_raw_output(self, model_output: ArrayLike) -> NDArray[Any]:
+        observation = self.observation
+        raw = np.asarray(model_output)
+        expected_shape = (len(observation.agents),)
+        if raw.shape != expected_shape:
+            raise InvalidJointActionError(
+                f"model output shape {raw.shape} does not match {expected_shape}"
+            )
+        if not np.issubdtype(raw.dtype, np.integer):
+            raise InvalidJointActionError(
+                "model output must contain integer destination IDs"
+            )
+        if np.any(raw < 0):
+            raise InvalidJointActionError(
+                "model output destination IDs cannot be negative"
+            )
+        return raw
+
     def _validate(self, action: JointAction, mask: ActionMask) -> list[int]:
         observation = self.observation
         expected_ids = tuple(agent.agent_id for agent in observation.agents)
@@ -166,7 +225,9 @@ class TarwareEnvWrapper:
                 f"joint action agents {actual_ids} do not match canonical order {expected_ids}"
             )
         if mask.agent_ids != expected_ids:
-            raise InvalidJointActionError("action mask agent ordering does not match observation")
+            raise InvalidJointActionError(
+                "action mask agent ordering does not match observation"
+            )
 
         role_by_id = {agent.agent_id: agent.role for agent in observation.agents}
         selected_by_role: set[tuple[AgentRole, int]] = set()
@@ -216,8 +277,7 @@ class TarwareEnvWrapper:
                     target=target,
                     target_destination_id=target_id,
                     busy=bool(agent.busy),
-                    carrying_shelf=role is AgentRole.AGV
-                    and carrying_shelf is not None,
+                    carrying_shelf=role is AgentRole.AGV and carrying_shelf is not None,
                     carrying_requested_shelf=role is AgentRole.AGV
                     and carrying_shelf is not None
                     and carrying_shelf.id in requested_shelf_ids,

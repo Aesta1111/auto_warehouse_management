@@ -1,0 +1,30 @@
+{
+  "action_nvec": [
+    55,
+    55,
+    55,
+    55,
+    55
+  ],
+  "deterministic_action": [
+    27,
+    24,
+    53,
+    0,
+    0
+  ],
+  "environment": "tarware-tiny-3agvs-2pickers-partialobs-v1",
+  "mask_shape": [
+    275
+  ],
+  "observation_shape": [
+    125
+  ],
+  "repairs_during_training": 1,
+  "save_reload_action_equal": true,
+  "sb3_contrib": "2.9.0",
+  "schema_version": 1,
+  "seed": 0,
+  "stable_baselines3": "2.9.0",
+  "timesteps": 512
+}

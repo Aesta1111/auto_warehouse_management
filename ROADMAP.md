@@ -22,13 +22,13 @@ workflow, roadmap, and experiment-recording rules from `README.md`.
 
 - [x] Pin an immutable TA-RWARE commit and record its license.
 - [x] Determine a working local Python and dependency set.
-- [x] Run the smallest meaningful TA-RWARE episode; rendering remains to verify.
+- [x] Run and render the smallest meaningful TA-RWARE episode.
 - [x] Document observations, task-assignment actions, rewards, episode ending,
   valid-action handling, and multi-agent behavior.
-- [ ] Test deterministic reset and replay with fixed seeds.
-- [ ] Test simulator snapshot/restore; document the replay fallback if needed.
-- [ ] Verify Stable-Baselines3 and action-masking compatibility.
-- [ ] Lock the exact Hugging Face Gemma repository ID and revision.
+- [x] Test deterministic reset and replay with fixed seeds.
+- [x] Test simulator snapshot/restore; document the replay fallback if needed.
+- [x] Verify Stable-Baselines3 and action-masking compatibility.
+- [x] Lock the exact Hugging Face Gemma repository ID and revision.
 - [ ] Test quantized inference, embedding injection, and one LoRA forward/backward
   step on target GPU hardware.
 - [ ] Measure GPU memory, latency, and estimated training cost.

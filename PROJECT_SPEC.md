@@ -8,7 +8,10 @@
 - Repository state when written: empty except for Git metadata.
 - Simulator: Task Assignment Robotic Warehouse (TA-RWARE), from
   <https://github.com/uoe-agents/task-assignment-robotic-warehouse>.
-- Important limitation: TA-RWARE and Hugging Face could not be inspected from the current environment because network requests stalled. Their APIs, licenses, and version compatibility must be verified before implementation.
+- Compatibility status: TA-RWARE is pinned and its local Windows interface has
+  been verified. The Gemma 4 model identities are pinned, and a random tiny
+  Gemma 4 model has verified the embedding/LoRA gradient path. Linux pathfinder
+  equivalence and the real quantized model run remain deferred cloud checks.
 
 This document is the source of truth for project intent. Future changes should update this file rather than relying on conversation history.
 
@@ -164,7 +167,18 @@ On invalid output, retry at most once with a compact validation error. If the re
 
 ### 5.6 Model dependency
 
-The user requested a quantized Gemma 12B model from Hugging Face and referred to it as "Gemma 4 12B." That exact identity was not verified. `google/gemma-3-12b-it` is a provisional candidate, not a locked dependency.
+The primary model is `google/gemma-4-12B-it` at immutable revision
+`0e2b1058541244490925fbacf8972041435691ac` (Apache-2.0). The smaller fallback
+is `google/gemma-4-E4B-it` at revision
+`a4c2d58be94dda072b918d9db64ee85c8ed34e3f`. The primary remains conditional
+on the deferred target-GPU memory, latency, and cost measurements.
+
+Gemma 4 uses additional token-identity embeddings at every transformer layer.
+Arbitrary projected `inputs_embeds` therefore must be paired with explicit
+`per_layer_inputs`; the soft-token positions use zero per-layer identity inputs.
+This route produced projector and LoRA gradients in a tiny random model. The
+authoritative run will use NF4 double quantization, BF16 compute, and rank-8
+LoRA on the attention `q`, `k`, `v`, and `o` projections.
 
 Before dataset generation, run a compatibility spike that locks:
 
@@ -414,6 +428,14 @@ Major risks:
 - Simulator boundary: one project-owned TA-RWARE wrapper returns typed
   observations, decodes model destination vectors, validates joint actions,
   and accepts typed actions for stepping.
+- Rollout restoration: pickled simulator snapshots are rejected because their
+  action suffixes diverged. Reconstruct states from an explicit seed and
+  recorded action prefix, verifying the observable suffix before label use.
+- PPO mask compatibility: SB3-Contrib 2.9.0 supports the five-component
+  `MultiDiscrete` action, but its masks cannot express cross-agent conflicts.
+  The experimental PPO adapter keeps the first canonical same-role destination
+  and turns later duplicates into logged no-ops. Strict and hybrid actions are
+  never silently repaired.
 - Training: freeze PPO and base LLM; train projector and LoRA adapters.
 - Improvement labels: short fixed-horizon rollouts over PPO top candidates plus a heuristic candidate.
 - Output: structured assignment JSON plus a short reason.
@@ -430,7 +452,10 @@ Major risks:
 - Dependencies: `uv` with `pyproject.toml`; Conda only as a compatibility
   fallback.
 - Application interfaces: Typer CLI and YAML/Pydantic configuration.
-- PPO implementation: Stable-Baselines3, pending TA-RWARE compatibility.
+- PPO implementation: Stable-Baselines3 and SB3-Contrib 2.9.0, with the
+  compatibility adapter and joint-conflict projection described above.
+- Gemma dependency: `google/gemma-4-12B-it@0e2b105...`, with
+  `google/gemma-4-E4B-it@a4c2d58...` as the budget fallback.
 - Code quality: Ruff, standard basedpyright, `jaxtyping`, and pytest.
 - Cloud workflow: repository CLI on RunPod, not notebook-only training.
 - Source hosting: public GitHub repository using short branches and pull

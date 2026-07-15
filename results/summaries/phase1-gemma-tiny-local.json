@@ -1,0 +1,28 @@
+{
+  "base_frozen": true,
+  "fallback_model": {
+    "id": "google/gemma-4-E4B-it",
+    "revision": "a4c2d58be94dda072b918d9db64ee85c8ed34e3f"
+  },
+  "gradients_finite": true,
+  "hidden_size": 32,
+  "latent_size": 16,
+  "lora_grad_norm": 348.7196626663208,
+  "lora_rank": 8,
+  "lora_updated": true,
+  "loss": 4.217324733734131,
+  "loss_finite": true,
+  "peft": "0.19.1",
+  "per_layer_soft_identity_zeroed": true,
+  "primary_model": {
+    "id": "google/gemma-4-12B-it",
+    "revision": "0e2b1058541244490925fbacf8972041435691ac"
+  },
+  "projector_grad_norm": 220.0300326347351,
+  "projector_updated": true,
+  "schema_version": 1,
+  "seed": 0,
+  "soft_tokens": 4,
+  "torch": "2.8.0+cpu",
+  "transformers": "5.13.1"
+}

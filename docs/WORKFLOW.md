@@ -30,6 +30,21 @@ native TA-RWARE dependency that cannot be installed reliably with `uv`.
 
 ### RunPod GPU jobs
 
+The Phase 1 handoff is pinned to
+`runpod/pytorch:1.0.2-cu1281-torch280-ubuntu2404` on one A40 48 GB pod. Keep the
+compatibility job below USD 5. After cloning and checking out an exact project
+commit, run:
+
+```bash
+bash scripts/run_phase1_cloud.sh
+```
+
+The script installs the exact upstream Linux pathfinder commit for the simulator
+comparison, then uses `--no-sync` so the Windows compatibility override does not
+replace it. It records Linux trace hashes and the quantized Gemma A40 summary in
+`results/summaries/`. Copy those small summaries and the actual pod cost into a
+new research-log entry before stopping the pod.
+
 1. Start from a documented image with a compatible NVIDIA driver.
 2. Clone the public GitHub repository at an exact commit.
 3. Supply Hugging Face credentials through RunPod secrets, never source files.

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 import numpy as np
 from numpy.typing import NDArray
 from pydantic import (
@@ -34,6 +36,23 @@ class JointAction(ActionModel):
     """
 
     actions: tuple[AgentAction, ...]
+
+
+class ActionRepair(ActionModel):
+    """One explicit deterministic repair made for an SB3 joint action."""
+
+    agent_id: str
+    requested_destination_id: NonNegativeInt
+    applied_destination_id: Literal[0] = 0
+    reason: Literal["same_role_destination_conflict"]
+
+
+class ProjectedJointAction(ActionModel):
+    """Requested destinations and the validated action actually applied."""
+
+    requested_destinations: tuple[NonNegativeInt, ...]
+    action: JointAction
+    repairs: tuple[ActionRepair, ...]
 
 
 class ActionMask(ActionModel):

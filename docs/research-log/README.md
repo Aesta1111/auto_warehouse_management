@@ -26,3 +26,4 @@ Add completed entries below in chronological order:
 | Date | Topic | Outcome | Entry |
 | --- | --- | --- | --- |
 | 2026-06-20 | TA-RWARE source and installation audit | Native Windows blocked by upstream pathfinder build; Linux smoke test required | [Entry](2026-06-20-ta-rware-source-audit.md) |
+| 2026-07-15 | Phase 1 local compatibility handoff | Replay, SB3, and tiny Gemma pass locally; cloud proof remains | [Entry](2026-07-15-phase1-local-compatibility.md) |

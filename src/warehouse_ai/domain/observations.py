@@ -51,13 +51,13 @@ class AgentObservation(DomainModel):
     def validate_role_and_target(self) -> AgentObservation:
         """Enforce role-specific fields and target consistency."""
         if self.role is AgentRole.PICKER and (
-            self.carrying_shelf
-            or self.carrying_requested_shelf
-            or self.toggling_load
+            self.carrying_shelf or self.carrying_requested_shelf or self.toggling_load
         ):
             raise ValueError("picker observations cannot contain AGV-only fields")
         if (self.target is None) != (self.target_destination_id is None):
-            raise ValueError("target and target_destination_id must both be set or absent")
+            raise ValueError(
+                "target and target_destination_id must both be set or absent"
+            )
         return self
 
 
@@ -101,14 +101,18 @@ class WarehouseObservation(DomainModel):
     def validate_canonical_order(self) -> WarehouseObservation:
         """Require stable unique identifiers in model-feature order."""
         simulator_ids = tuple(agent.simulator_id for agent in self.agents)
-        if simulator_ids != tuple(sorted(simulator_ids)) or len(set(simulator_ids)) != len(
-            simulator_ids
-        ):
+        if simulator_ids != tuple(sorted(simulator_ids)) or len(
+            set(simulator_ids)
+        ) != len(simulator_ids):
             raise ValueError("agents must have unique ascending simulator IDs")
         shelf_ids = tuple(shelf.destination_id for shelf in self.shelves)
-        if shelf_ids != tuple(sorted(shelf_ids)) or len(set(shelf_ids)) != len(shelf_ids):
+        if shelf_ids != tuple(sorted(shelf_ids)) or len(set(shelf_ids)) != len(
+            shelf_ids
+        ):
             raise ValueError("shelves must have unique ascending destination IDs")
-        if tuple(self.goal_destination_ids) != tuple(sorted(set(self.goal_destination_ids))):
+        if tuple(self.goal_destination_ids) != tuple(
+            sorted(set(self.goal_destination_ids))
+        ):
             raise ValueError("goals must have unique ascending destination IDs")
         return self
 
