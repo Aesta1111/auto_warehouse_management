@@ -1,0 +1,22 @@
+schema_version: 1
+environment_id: tarware-tiny-3agvs-2pickers-partialobs-v1
+episode_seed: 9100
+episode_steps: 500
+render_hybrid: true
+vocabulary_path: configs/demo/directives-v1.yaml
+directive_probe_report_path: results/demo/directive-probe-report.json
+ppo_checkpoint_path: results/demo/checkpoints/directive-ppo-v1.zip
+ppo_manifest_path: results/demo/checkpoints/directive-ppo-v1.json
+selected_model: e4b
+preflight_report_path: results/demo/gemma-preflight-e4b.json
+output_directory: results/demo
+llama_cpp:
+  base_url: http://127.0.0.1:8080
+  model_id: google/gemma-4-E4B-it
+  model_file_sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+  context_size: 4096
+  gpu_layers: 999
+  request_timeout_seconds: 12.0
+  max_new_tokens: 192
+  temperature: 0
+preflight_p95_limit_seconds: 10.0

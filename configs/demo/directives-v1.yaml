@@ -1,0 +1,21 @@
+schema_version: 1
+vocabulary_id: directives-v1
+behavior_version: candidate-v1
+wait_directive_id: 0
+directives:
+  - directive_id: 0
+    command: wait
+    description: Leave all agents unassigned for this decision.
+    behavior_key: wait
+  - directive_id: 1
+    command: service-requested-shelf
+    description: Prefer a legal destination that advances requested shelf work.
+    behavior_key: service_requested_shelf
+  - directive_id: 2
+    command: deliver-carried-shelf
+    description: Prefer a legal destination that delivers a carried shelf.
+    behavior_key: deliver_carried_shelf
+  - directive_id: 3
+    command: reposition-idle-agent
+    description: Prefer a legal destination that repositions an idle agent.
+    behavior_key: reposition_idle_agent
