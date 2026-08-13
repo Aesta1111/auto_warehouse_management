@@ -1,255 +1,1320 @@
-# Fast PPO + Frozen Gemma Demo Prototype
+# Neural Directive + Frozen Gemma Actioner Demo
 
 ## 1. Purpose and boundaries
 
-Build a separate, unscored demonstration in which a small MaskablePPO policy
-proposes valid warehouse joint actions and a frozen local Gemma model selects
-among them. The demo exists to give the research team a working visual system
-quickly; it is not evidence for or against the core projector-and-LoRA research
-hypothesis.
+Build a separate, unscored demonstration in which a small neural network reads
+the warehouse observation and emits one discrete directive token. A frozen local
+Gemma model interprets that directive together with the visible warehouse state
+and produces the concrete simulator action.
 
-This prototype must remain isolated from the authoritative experiment:
+For this demo, one LLM response contains exactly one TA-RWARE `JointAction`.
+The boundary must be designed so the main research project can later investigate
+an ordered sequence of actions, but this prototype must not implement, simulate,
+or claim support for action sequences.
 
-- Do not train Gemma, add LoRA adapters, inject soft tokens, or create a
-  refinement dataset.
-- Do not claim that the prototype improves on PPO, even if its one demonstration
-  episode has a higher score.
-- Do not count prototype work as completing a research roadmap phase or exit
-  gate.
+This branch remains isolated from the authoritative projector-and-LoRA
+experiment:
+
+- Do not train or fine-tune Gemma, add LoRA adapters, or inject soft tokens.
+- Do not claim that the demo improves on PPO or validates the main hypothesis.
+- Do not count prototype work as completing a research roadmap phase or gate.
 - Do not use prototype training or demonstration seeds in later validation or
   final evaluation.
-- Keep the declared research metric and held-out protocol unchanged.
+- Keep the declared primary metric and held-out protocol unchanged.
 
-The first completed demo runs two matched 500-step episodes: a headless PPO-only
-episode followed by a rendered PPO-plus-Gemma episode. Both use the same PPO
-checkpoint, TA-RWARE configuration, environment seed, and episode length.
+The important demo behavior is visible end-to-end control:
 
-## 2. Architecture
+```text
+warehouse state -> small neural network -> directive token
+                -> frozen Gemma actioner -> validated joint action -> TA-RWARE
+```
 
-### 2.1 Data flow
+## 2. Directive contract
 
-At each simulator step:
+### 2.1 Representation
+
+Represent the neural output as a typed `DirectiveToken`, not as free-form text:
+
+- `directive_id`: stable integer action used by the PPO policy.
+- `command`: short English command shown to Gemma and in the demo UI.
+- `description`: one-sentence operational meaning included in the prompt.
+- `applicability_rule`: deterministic rule identifying states where the
+  directive is an available PPO action.
+- `action_effect_rule`: testable predicate describing what a compliant concrete
+  action must do when the directive is applicable.
+
+The neural network predicts only `directive_id`. Application code resolves the
+ID through a versioned directive vocabulary before constructing the LLM prompt.
+This prevents spelling differences or invented words from changing behavior.
+
+The exact vocabulary is intentionally not selected in this plan. Complete a
+small directive-vocabulary spike before training:
+
+1. Inspect representative tiny-layout trajectories and list the distinct
+   high-level intents that precede legal assignments.
+2. Propose between four and eight mutually distinguishable commands.
+3. Define which commands are applicable from each controller-visible state and
+   ensure every reachable state has at least one applicable command.
+4. Merge or remove commands whose deterministic training executors cannot
+   produce meaningfully different valid behavior.
+5. Freeze the chosen IDs, English commands, descriptions, and vocabulary
+   version in YAML before final PPO training. Freeze the
+   applicability and action-effect rules in code and reference their versions
+   from the YAML.
+
+Likely concepts include servicing a requested shelf, delivering a carried
+requested shelf, returning a shelf, repositioning an idle agent, and waiting,
+but these are candidates rather than decisions. The spike must not invent
+semantics that TA-RWARE trajectories do not support.
+
+### 2.2 PPO training executor
+
+Train a MaskablePPO policy whose discrete action space is the frozen directive
+vocabulary. PPO selects `directive_id`; it does not directly select TA-RWARE
+destination IDs.
+
+PPO training must not call Gemma at every environment step. Instead, each
+directive has a deterministic training executor that converts the directive and
+current visible state into one strictly valid `JointAction`. The executor may
+use the same distance and eligibility facts as the deterministic heuristic, but
+its directive-specific action-effect rule must constrain the result. If a
+directive is not applicable, mask it before PPO samples an action.
+
+The training environment therefore behaves as:
+
+```text
+observation -> MaskablePPO directive -> deterministic directive executor
+            -> validated JointAction -> TA-RWARE reward and next observation
+```
+
+At demo time, Gemma replaces only the deterministic directive executor. The PPO
+policy, observation encoding, directive vocabulary, and action mask remain
+frozen. This creates an intentional executor-transfer gap: PPO is optimized for
+the deterministic executor, so the demo must measure whether Gemma preserves
+each directive's action effect. Results cannot attribute differences solely to
+PPO policy quality.
+
+## 3. Demo architecture
+
+### 3.1 Runtime data flow
+
+At each decision opportunity:
 
 1. Read the canonical `WarehouseObservation` and current `ActionMask` from the
    existing TA-RWARE wrapper.
-2. Use the frozen MaskablePPO policy to obtain masked categorical probabilities
-   for each agent.
-3. Construct up to three highest-scoring complete joint actions with a
-   best-first beam search.
-4. Strictly validate and deduplicate every candidate. Busy agents must select
-   no-op, masked destinations are forbidden, and agents with the same role
-   cannot select the same nonzero destination.
-5. If fewer than two distinct candidates exist, or no idle agent has a nonzero
-   choice, apply PPO candidate zero without calling Gemma.
-6. Otherwise serialize the compact visible state, candidates, ranks, and scores
-   into a deterministic prompt.
-7. Ask the local Gemma server to choose one candidate using schema-constrained
-   JSON.
-8. Validate the selected candidate immediately before applying it. On any model
-   or validation failure, apply PPO candidate zero and log the fallback.
-9. Record the decision and advance TA-RWARE.
+2. Encode the observation using the existing deterministic numeric contract.
+3. Run the frozen MaskablePPO directive policy with the current directive mask
+   and choose its deterministic `directive_id`.
+4. Resolve the ID to its English command and description.
+5. Serialize the directive, compact visible state, action-mask facts, and exact
+   output contract into a deterministic Gemma prompt.
+6. Ask Gemma to produce one complete joint destination action using
+   schema-constrained JSON.
+7. Parse the output and pass it through the existing strict
+   `TarwareEnvWrapper.decode` validation path immediately before stepping.
+8. On any timeout, server error, malformed output, masked destination,
+   cross-agent conflict, action-effect violation, or stale action, execute the
+   selected directive's deterministic training executor and log the fallback.
+9. Record the PPO directive output, LLM action, validation result, fallback, and
+   latency, then advance TA-RWARE.
 
-The PPO-only controller uses exactly the same candidate generator and always
-chooses candidate zero. This ensures that the demonstration comparison differs
-only in Gemma's reranking step.
+Call Gemma only when at least one idle agent has a legal nonzero destination.
+When every agent is busy or only no-op is legal, apply the validated all-no-op
+action without an LLM call.
 
-### 2.2 Prototype interfaces
+### 3.2 Prototype interfaces
 
-Add the prototype under an isolated `warehouse_ai.demo` package rather than
-building the unfinished production hybrid package or full Typer CLI.
+Add the implementation under an isolated `warehouse_ai.demo` package rather
+than scaffolding the unfinished production hybrid package.
 
-Define these strict immutable records:
+The concrete files, classes, and signatures are specified in Section 7. Keep
+prototype records strict, immutable, serializable Pydantic models. Keep runtime
+services as ordinary typed Python classes or protocols rather than placing live
+clients or simulator objects inside Pydantic models.
 
-- `ActionCandidate`
-  - `candidate_id`: zero-based identifier local to one decision.
-  - `action`: already validated `JointAction`.
-  - `ppo_rank`: one-based PPO ranking.
-  - `joint_log_score`: sum of the selected per-agent log probabilities.
-  - `normalized_score`: candidate score normalized across the offered set.
-- `CandidateProposal`
-  - Observation step and stable identifier.
-  - Between one and three unique `ActionCandidate` values.
-- `GemmaSelection`
-  - `candidate_id`: restricted to the IDs in the current proposal.
-  - `reason`: presentation-only explanation limited to 160 characters.
-- `DemoDecisionRecord`
-  - Step, candidate vectors and scores, selected candidate, model reason,
-    latency, model identity, and fallback status.
+Use a generic `Actioner[PlanT]` boundary. The demo binds it to
+`SingleJointActionPlan`; the main project may later bind a different actioner to
+a separately designed sequence-plan type without changing PPO's directive
+interface. The demo must not define a sequence type prematurely.
 
-The Gemma response schema is:
+### 3.3 Gemma output
+
+The demo response is one destination vector in canonical agent order, matching
+the existing `TarwareEnvWrapper.decode()` input contract:
 
 ```json
 {
-  "candidate_id": 0,
-  "reason": "Short explanation"
+  "destinations": [12, 0, 0, 12, 0],
+  "reason": "Act on the directive using one AGV and one picker."
 }
 ```
 
-The schema must forbid additional properties and dynamically restrict
-`candidate_id` to the candidate IDs included in the current prompt. The reason
-is displayed and logged but never changes validation or simulator behavior.
+Generate with a strict JSON schema that:
 
-### 2.3 Candidate generation
+- Requires exactly one integer per current agent in canonical order.
+- Restricts every destination to the numeric TA-RWARE action range.
+- Limits `reason` to 160 characters.
+- Forbids additional properties.
 
-Use the MaskablePPO policy distribution rather than repeatedly sampling
-actions. Apply the current per-agent masks before ranking. Build joint actions
-incrementally in canonical agent order, keeping the highest accumulated
-log-probability partial assignments and pruning same-role destination conflicts
-as soon as they appear.
+JSON-schema generation is only the first guard. Project-owned validation must
+still reject the wrong vector length, masked destinations, busy-agent
+assignments, and same-role destination conflicts.
 
-Continue the search until three unique, strictly valid joint actions are found
-or the valid search space is exhausted. Do not use `TarwareEnvWrapper.project`
-for demo candidates: silent repair would make the action shown to Gemma differ
-from the action executed by the simulator.
-
-Use summed log-probability for ordering. Convert the final candidates to
-normalized top-k scores for display and prompting. Stable tie-breaking uses the
-lexicographic destination vector, so fixed observations and checkpoints always
-produce the same candidate order.
-
-### 2.4 Gemma prompt
+### 3.4 Gemma prompt
 
 The prompt contains only controller-visible information:
 
+- The predicted English command and its frozen description.
 - Episode step and the objective of completing requested shelf work.
 - Each agent's ID, role, position, busy state, target, and AGV carrying state.
-- Requested shelf locations, goal destinations, and positions referenced by
-  the candidates.
-- Each candidate's ID, destination vector decoded by agent, PPO rank, and
-  normalized score.
-- A clear instruction to choose exactly one offered candidate and never invent
-  an agent or destination.
+- Requested shelf locations and goal destinations.
+- Per-agent legal destination IDs, with zero explained as no-op.
+- The single-action JSON contract and a warning that every choice is validated.
 
-Use deterministic decoding, a maximum of 64 generated tokens, and no corrective
-retry. A timeout, HTTP error, malformed response, unexpected property, invalid
-candidate ID, or stale action produces an immediate logged fallback to candidate
-zero. Avoiding retries keeps the live demonstration responsive.
+Use deterministic decoding, at most 192 generated tokens, and no corrective
+retry. The English command guides the action, but it never overrides the action
+mask or validator. When the selected directive has a machine-checkable
+action-effect rule, reject an otherwise legal action that contradicts that rule
+and use the selected directive's deterministic executor fallback.
 
-## 3. Model runtime and fallback
+## 4. Model runtime and fallback
 
 Use Google's official instruction-tuned Gemma E4B QAT Q4 GGUF checkpoint through
 a pinned `llama.cpp` server and its local OpenAI-compatible endpoint. The model
 is approximately 5.15 GB, so partial GPU offload is permitted on the laptop's
-6 GB RTX 4050. The demo client should depend only on a small HTTP client; the
-model server remains an explicit external process.
+6 GB RTX 4050.
 
 Before running TA-RWARE, perform an E4B preflight:
 
-1. Verify the server health endpoint and requested model identity.
-2. Send one warm-up selection followed by five measured schema-constrained
-   selections.
-3. Confirm all five responses validate against their dynamic schemas.
-4. Record median and p95 decision latency.
+1. Verify server health and requested model identity.
+2. Send one warm-up request followed by five measured action requests covering
+   at least two directive classes.
+3. Confirm that all five responses parse and pass strict action validation.
+4. On at least three fixed states where two directives are applicable, send the
+   same state with each directive and record whether the actions satisfy their
+   different action-effect rules. This is a directive-sensitivity probe, not a
+   performance evaluation.
+5. Record median and p95 decision latency.
 
-Use E4B when the preflight completes without an out-of-memory error and p95
-latency is at most 10 seconds. Otherwise use the official Gemma E2B QAT Q4 GGUF
-checkpoint with the same prompt, schema, and server interface. Clearly display
-and record any fallback to E2B; do not describe an E2B run as E4B.
+Use E4B when preflight completes without an out-of-memory error and p95 latency
+is at most 10 seconds. Otherwise use the official Gemma E2B QAT Q4 GGUF
+checkpoint with the same prompt and schema. Clearly record the model
+substitution.
 
-Pin and record the exact model repository, immutable revision or file digest,
-GGUF filename, quantization, `llama.cpp` version, GPU-offload settings, context
-size, and server command. Model files remain outside Git.
+Pin the exact model repository, immutable revision or file digest, GGUF
+filename, quantization, `llama.cpp` version, GPU-offload settings, context size,
+and server command. Model files remain outside Git.
 
-## 4. Training and demonstration workflow
+## 5. Training and demonstration workflow
 
-### 4.1 PPO checkpoint
+### 5.1 Directive PPO environment and checkpoint
 
-Add a small argparse training script that:
+Add a prototype Gymnasium adapter whose observation is the existing 125-value
+tiny-layout encoding and whose action space is `Discrete(vocabulary_size)`.
+Expose one boolean mask over directive IDs from the frozen applicability rules.
+Its `step(directive_id)` operation must:
 
-- Uses the existing tiny TA-RWARE environment and `TarwareSb3Env` adapter.
-- Trains MaskablePPO for 25,000 timesteps.
-- Uses environment seed `8100` and an independently recorded algorithm seed.
-- Saves the checkpoint plus a small JSON manifest outside Git.
-- Records the Git commit, dirty state, environment ID, dependency versions,
-  seeds, timesteps, and checkpoint digest.
+1. Reject a masked or unknown directive.
+2. Resolve the directive through its deterministic training executor.
+3. Strictly validate the resulting joint action without silent repair.
+4. Step TA-RWARE and return the unmodified summed simulator reward.
+5. Log the directive, executor output, and any executor failure.
 
-The checkpoint is for the prototype only and must not become the frozen PPO
-checkpoint used by the scientific experiment.
+Train SB3-Contrib `MaskablePPO` with a small MLP policy using one 64-unit hidden
+layer for the policy and value networks. Use prototype-only training seeds
+beginning at `8100`, separate validation seeds, and an initial budget of 25,000
+timesteps. Keep all PPO hyperparameters in a versioned config.
 
-### 4.2 Demo runner
+Evaluate checkpoints with the deterministic directive executor on validation
+episodes and select by mean completed tasks, using mean return as the declared
+tie-breaker. Record directive frequencies, masked-action counts, entropy, and
+whether the learned policy collapses to one directive. If fewer than two
+non-wait directives are selected on validation episodes, revise the vocabulary
+or reward-neutral executor semantics before involving Gemma.
 
-Add one argparse demo runner with a strict versioned configuration. It should:
+Save the PPO checkpoint outside Git and write a small manifest containing the
+vocabulary and executor versions, training and validation seeds, architecture,
+hyperparameters, validation metrics, Git state, dependency versions, and
+checkpoint digest. This checkpoint is a prototype artifact and must not become
+the PPO checkpoint used by the main scientific experiment.
 
-1. Load the prototype PPO checkpoint and verify its manifest.
+### 5.2 Demo runner
+
+Add one argparse runner with a strict versioned configuration. It should:
+
+1. Load and verify the directive PPO checkpoint, vocabulary, executor, and
+   manifests.
 2. Check the local Gemma server and run the E4B/E2B preflight.
-3. Run PPO-only headlessly for 500 steps with environment seed `9100`.
-4. Reset the same environment configuration to seed `9100`.
-5. Run the Gemma-reranked controller for 500 steps with rendering enabled.
-6. Print and save a side-by-side summary.
+3. Run the frozen PPO policy with its deterministic training executor headlessly
+   for 500 steps using environment seed `9100`.
+4. Reset the identical environment configuration to seed `9100`.
+5. Run the same frozen PPO directive policy with Gemma as the actioner for 500
+   rendered steps.
+6. Display each directive and concrete LLM action as decisions occur.
+7. Print and save a side-by-side descriptive summary.
 
 The summary includes completed tasks, total return, clashes or stuck events,
-episode wall time, LLM call count, model-selection count by candidate rank,
-median and p95 LLM latency, invalid response count, and PPO fallback count.
-Per-decision records are written as JSONL, and each controller receives a small
-JSON episode summary.
+episode wall time, directive-class counts, LLM call count, median and p95 LLM
+latency, invalid action count, action-effect violations, and deterministic
+executor fallback count. Per-decision records are JSONL; each controller
+receives a small JSON episode summary.
 
-Prototype seeds `8100` and `9100` become permanently excluded from future
-validation and held-out final evaluation. Neither episode result is a
-statistical comparison.
+Seeds used for vocabulary discovery, PPO training, PPO validation, or the demo
+become permanently excluded from later scientific evaluation. The two displayed
+episodes are not a statistical comparison.
 
-## 5. Repository and documentation changes
+## 6. Repository and documentation changes
 
-- Add the isolated demo package, strict configuration, training script, and
-  runner without implementing the planned production CLI or hybrid trainer.
-- Add a prototype section to `PROJECT_SPEC.md` documenting the explicit roadmap
+- Add the isolated demo package, versioned directive YAML, deterministic
+  directive executors, strict PPO configuration, training script, and demo
+  runner.
+- Add a prototype section to `PROJECT_SPEC.md` documenting this roadmap
   exception and its non-research status.
 - Add a time-boxed prototype item to `ROADMAP.md` without marking existing phase
   gates complete.
-- Add README commands for installing or starting the pinned local server,
-  training the prototype PPO, and running the matched demonstration.
-- Add model files, prototype checkpoints, manifests containing personal paths,
-  and large logs to the appropriate ignore rules. Commit only configuration,
-  code, tests, small summaries, and approved logs.
-- Create a dated research-log entry after the first real run, recording model
-  selection, latency, failures, hardware, observations, and the decision that
-  follows. Do not pre-write successful results.
+- Document the directive-vocabulary decision in a dated research-log entry after
+  the spike, including rejected alternatives and applicability coverage.
+- Add README commands for training the directive PPO policy, starting the pinned
+  local server, and running the demo.
+- Ignore model files, generated trajectories, checkpoints, and large logs. Commit
+  only code, configs, tests, manifests without personal paths, small summaries,
+  and approved research logs.
+- Record the first real end-to-end run in a separate dated research-log entry;
+  do not pre-write successful results.
 
-## 6. Tests
+## 7. Detailed implementation blueprint
+
+### 7.1 Package and file layout
+
+Create the following prototype-only modules:
+
+```text
+configs/demo/
+|-- directives-v1.yaml
+|-- directive-probe-v1.yaml
+|-- directive-ppo-v1.yaml
+`-- directive-demo-v1.yaml
+src/warehouse_ai/demo/
+|-- __init__.py        # Public exports added only when each phase passes
+|-- models.py          # Phase-grouped immutable records and configuration
+|-- directives.py      # Phase 2: directive semantics and executors
+|-- sb3.py             # Phase 3: directive-to-TA-RWARE SB3 facade
+|-- ppo.py             # Phase 3: PPO training and frozen inference
+|-- prompting.py       # Phase 4: state prompt and JSON schema
+|-- actioner.py        # Phases 4-5: protocol, then real llama.cpp client
+|-- controllers.py     # Phase 4: executor and actioner controllers
+|-- evaluation.py      # Phase 6: episode loop and matched demo
+`-- artifacts.py       # Cross-phase digests and atomic small artifacts
+scripts/
+|-- probe_directives.py
+|-- train_directive_ppo.py
+|-- probe_gemma_actioner.py
+`-- run_directive_demo.py
+```
+
+Tests mirror those modules under `tests/demo/`. The existing domain models and
+`TarwareEnvWrapper` remain authoritative; do not create duplicate observation,
+mask, or joint-action types.
+
+Add bounded `httpx` and `PyYAML` runtime dependencies, then let `uv.lock` pin
+their exact resolved versions. `httpx` communicates with the local `llama.cpp`
+server and `PyYAML.safe_load()` supplies dictionaries to Pydantic. Do not add an
+OpenAI SDK because this prototype only needs one local HTTP endpoint.
+
+Class ownership is intentionally grouped by implementation phase:
+
+| Phase | Class group | Primary modules |
+| --- | --- | --- |
+| 1 | Shared records, YAML configs, hashing, and artifact primitives | `models.py`, `artifacts.py` |
+| 2 | Directive behavior protocol, registry, concrete executors, and semantic errors | `directives.py` |
+| 3 | Directive SB3 facade, PPO policy facade, training, validation, and checkpoint manifest | `sb3.py`, `ppo.py`, `models.py` |
+| 4 | Actioner-neutral request/plan contracts, prompt builder, fake-client path, and controllers | `models.py`, `prompting.py`, `actioner.py`, `controllers.py` |
+| 5 | Real `llama.cpp` health, inference, preflight, and model-selection records | `actioner.py`, `models.py` |
+| 6 | Episode records, matched runner, JSONL output, summaries, and documentation handoff | `evaluation.py`, `artifacts.py`, `models.py` |
+
+Do not create placeholder implementations for later phases. It is acceptable
+for `models.py` to grow one class group per phase; each group should be marked
+with the matching phase heading in the source file.
+
+### 7.2 Existing code reuse and non-duplication rules
+
+The repository already contains the simulator and domain boundary. Reuse it
+directly:
+
+| Existing API | Demo use | Do not recreate |
+| --- | --- | --- |
+| `TarwareEnvWrapper` | Own the only TA-RWARE instance; reset, observe, mask, decode, step, render, and close | No second simulator wrapper or direct `gym.make()` call in demo code |
+| `WarehouseObservation` and `.encode()` | PPO observation and prompt-visible warehouse state | No demo observation model or alternate feature encoder |
+| `ActionMask` | Destination validity and directive applicability input | No raw simulator-mask record |
+| `AgentAction` and `JointAction` | Only internal concrete-action representation | No duplicate robot/action classes |
+| `TarwareEnvWrapper.decode()` | Strictly validate executor and Gemma destination vectors | No second destination validator |
+| `TarwareEnvWrapper.no_op()` | Automatic no-op path | No hand-built all-zero `JointAction` |
+| `TarwareEnvWrapper.step()` | Apply every accepted action | No access to `wrapper.unwrapped` outside compatibility tests |
+| `TarwareEnvWrapper.render()` | Render the live demo | No separate renderer |
+| `TarwareSb3Env` | Retain for the existing direct-joint-action PPO compatibility path | Do not modify its action semantics for directive PPO |
+
+The only new environment-like class is `DirectiveSb3Env`. It is not another
+TA-RWARE wrapper: it owns one existing `TarwareEnvWrapper` by composition and
+translates a scalar directive ID into a validated `JointAction` through
+`DirectiveRegistry`. Its purpose is solely to present
+`Discrete(vocabulary_size)` to SB3.
+
+Move the generic scalar mask-aware sampling helper into the existing
+`warehouse_ai.env.sb3` module as `MaskAwareDiscrete`, beside the existing
+`MaskAwareMultiDiscrete`. `DirectiveSb3Env` imports it. Do not create a separate
+`MaskAwareDirectiveSpace` with duplicated sampling logic.
+
+`DirectiveContext` is an immutable request snapshot, not an alternative
+observation. It contains references to the existing `WarehouseObservation` and
+`ActionMask` plus a state digest. `GemmaActionResponse` is only the external JSON
+wire model; it must be decoded immediately into the existing `JointAction` and
+must never become a second internal action type.
+
+### 7.3 Records and configuration (`models.py`)
+
+All models below inherit a prototype `DemoModel` configured with
+`extra="forbid"` and `frozen=True`. Paths are resolved by the scripts and are
+not stored as personal absolute paths in committed configs.
+
+```python
+class DemoModel(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+        arbitrary_types_allowed=True,
+    )
+
+
+class DirectiveDefinition(DemoModel):
+    directive_id: NonNegativeInt
+    command: str
+    description: str
+    behavior_key: str
+
+
+class DirectiveVocabulary(DemoModel):
+    schema_version: Literal[1]
+    vocabulary_id: str
+    behavior_version: str
+    wait_directive_id: NonNegativeInt
+    directives: tuple[DirectiveDefinition, ...]
+
+    @classmethod
+    def load(cls, path: Path) -> DirectiveVocabulary: ...
+    def by_id(self, directive_id: int) -> DirectiveDefinition: ...
+    @property
+    def size(self) -> int: ...
+    def digest(self) -> str: ...
+
+
+class DirectiveContext(DemoModel):
+    state_id: str
+    observation: WarehouseObservation
+    action_mask: ActionMask
+
+    @classmethod
+    def capture(cls, wrapper: TarwareEnvWrapper) -> DirectiveContext: ...
+
+
+class DirectivePrediction(DemoModel):
+    state_id: str
+    episode_step: NonNegativeInt
+    directive: DirectiveDefinition
+    probabilities: tuple[float, ...]
+    value_estimate: float
+    policy_latency_ms: NonNegativeFloat
+    checkpoint_sha256: str
+
+
+class ActionerRequest(DemoModel):
+    context: DirectiveContext
+    prediction: DirectivePrediction
+
+
+class GemmaActionResponse(DemoModel):
+    destinations: tuple[NonNegativeInt, ...]
+    reason: str
+
+
+class SingleJointActionPlan(DemoModel):
+    state_id: str
+    directive_id: NonNegativeInt
+    action: JointAction
+    reason: str
+
+
+PlanT = TypeVar("PlanT")
+
+
+class ActionerResult(DemoModel, Generic[PlanT]):
+    plan: PlanT
+    raw_text: str
+    model_id: str
+    latency_ms: NonNegativeFloat
+
+
+class DemoDecision(DemoModel):
+    prediction: DirectivePrediction
+    action: JointAction
+    reason: str
+    source: Literal["gemma", "directive_executor", "automatic_no_op"]
+    model_id: str | None
+    raw_response: str | None
+    directive_effect_valid: bool
+    llm_latency_ms: NonNegativeFloat | None
+    fallback_reason: str | None
+
+
+class DemoStepRecord(DemoModel):
+    decision: DemoDecision
+    rewards: tuple[float, ...]
+    terminated: tuple[bool, ...]
+    truncated: tuple[bool, ...]
+    simulator_info: dict[str, JsonValue]
+
+
+class ModelHealth(DemoModel):
+    reachable: bool
+    advertised_model_id: str | None
+    server_version: str | None
+
+
+class DirectiveProbeReport(DemoModel):
+    schema_version: Literal[1]
+    environment_id: str
+    vocabulary_sha256: str
+    behavior_sha256: str
+    probe_seeds: tuple[int, ...]
+    states_checked: PositiveInt
+    uncovered_states: NonNegativeInt
+    executor_failures: NonNegativeInt
+    effect_failures: NonNegativeInt
+    passed: bool
+
+
+class GemmaPreflightReport(DemoModel):
+    schema_version: Literal[1]
+    model_id: str
+    model_file_sha256: str
+    server_version: str
+    context_size: PositiveInt
+    gpu_layers: NonNegativeInt
+    prompt_schema_sha256: str
+    hardware_summary: str
+    valid_actions: NonNegativeInt
+    measured_actions: PositiveInt
+    sensitivity_cases_passed: NonNegativeInt
+    sensitivity_cases_total: PositiveInt
+    latency_median_ms: NonNegativeFloat
+    latency_p95_ms: NonNegativeFloat
+    passed: bool
+```
+
+`DirectiveVocabulary` validation must require four to eight definitions,
+contiguous IDs beginning at zero, unique commands and behavior keys, exactly one
+valid wait ID, nonblank text, and stable tuple ordering by ID.
+
+`DirectiveVocabulary.digest()` hashes its canonical UTF-8 JSON serialization
+with sorted object keys. `DirectivePrediction.probabilities` always has exactly
+`vocabulary.size` entries in ID order, assigns `0.0` to masked directives, and
+sums to one within floating-point tolerance.
+
+`DirectiveContext.capture()` computes `state_id` as SHA-256 over canonical JSON
+for the observation plus the action-mask bytes. The same function is used before
+and after LLM inference to reject stale responses.
+
+Configuration models:
+
+```python
+class DirectiveProbeConfig(DemoModel):
+    schema_version: Literal[1]
+    environment_id: str
+    vocabulary_path: Path
+    probe_seeds: tuple[int, ...] = (8000, 8001, 8002, 8003, 8004)
+    episode_steps: PositiveInt = 500
+
+
+class DirectivePpoConfig(DemoModel):
+    schema_version: Literal[1]
+    environment_id: str
+    vocabulary_path: Path
+    train_seeds: tuple[int, ...]
+    validation_seeds: tuple[int, ...]
+    algorithm_seed: int = 8100
+    episode_steps: PositiveInt = 500
+    total_timesteps: PositiveInt = 25_000
+    learning_rate: PositiveFloat = 3e-4
+    n_steps: PositiveInt = 256
+    batch_size: PositiveInt = 64
+    n_epochs: PositiveInt = 10
+    gamma: float = 0.99
+    gae_lambda: float = 0.95
+    clip_range: float = 0.2
+    entropy_coefficient: float = 0.01
+
+
+class LlamaCppConfig(DemoModel):
+    base_url: AnyHttpUrl
+    model_id: str
+    model_file_sha256: str
+    context_size: PositiveInt
+    gpu_layers: NonNegativeInt
+    request_timeout_seconds: PositiveFloat = 12.0
+    max_new_tokens: PositiveInt = 192
+    temperature: Literal[0] = 0
+
+
+class DirectiveDemoConfig(DemoModel):
+    schema_version: Literal[1]
+    environment_id: str
+    episode_seed: int = 9100
+    episode_steps: PositiveInt = 500
+    render_hybrid: bool = True
+    vocabulary_path: Path
+    directive_probe_report_path: Path
+    ppo_checkpoint_path: Path
+    ppo_manifest_path: Path
+    selected_model: Literal["e4b", "e2b"]
+    preflight_report_path: Path
+    output_directory: Path
+    llama_cpp: LlamaCppConfig
+    preflight_p95_limit_seconds: PositiveFloat = 10.0
+
+
+ConfigT = TypeVar("ConfigT", bound=DemoModel)
+
+
+def load_yaml_config(path: Path, model_type: type[ConfigT]) -> ConfigT: ...
+```
+
+Reject overlapping PPO training and validation seeds in configuration. The
+committed v1 PPO config uses training seeds `8100` through `8115` and validation
+seeds `8200` through `8203`. The runner rejects the demo seed if it overlaps the
+probe, PPO training, or PPO validation partitions.
+
+The demo config names one already-running model. Model fallback is an explicit
+two-step operator workflow: run E4B preflight; if it fails, stop that server,
+start E2B, set `selected_model: e2b`, and generate a passing E2B preflight
+report. The episode runner never swaps or launches model processes silently.
+
+### 7.4 Directive behavior registry (`directives.py`)
+
+Do not place Python function names or import paths in YAML. YAML contains a
+closed `behavior_key`; code owns the mapping from that key to a reviewed
+behavior object.
+
+```python
+class DirectiveBehavior(Protocol):
+    @property
+    def behavior_key(self) -> str: ...
+    def is_applicable(self, context: DirectiveContext) -> bool: ...
+    def propose_destinations(
+        self, context: DirectiveContext
+    ) -> tuple[int, ...]: ...
+    def validate_effect(
+        self, context: DirectiveContext, action: JointAction
+    ) -> None: ...
+
+
+class DirectiveRegistry:
+    def __init__(
+        self,
+        vocabulary: DirectiveVocabulary,
+        behaviors: Mapping[str, DirectiveBehavior],
+    ) -> None: ...
+    def action_mask(self, context: DirectiveContext) -> NDArray[np.bool_]: ...
+    def behavior_digest(self) -> str: ...
+    def execute(
+        self,
+        directive_id: int,
+        context: DirectiveContext,
+        wrapper: TarwareEnvWrapper,
+    ) -> JointAction: ...
+    def validate_effect(
+        self,
+        directive_id: int,
+        context: DirectiveContext,
+        action: JointAction,
+    ) -> None: ...
+```
+
+`action_mask()` returns shape `(vocabulary.size,)`. It calls each behavior's
+`is_applicable()` and asserts that the wait directive is always valid. It raises
+an invariant error if no directive is valid.
+
+`execute()` rejects unknown or inapplicable IDs, obtains the raw destination
+tuple, calls the existing `wrapper.decode()`, then calls `validate_effect()`.
+All training-executor output therefore passes through the same strict
+`TarwareEnvWrapper` validation as Gemma output. Do not introduce a decoder or
+validator abstraction around this existing project boundary.
+
+`behavior_digest()` hashes the ordered `(directive_id, behavior_key,
+behavior class qualified name)` bindings together with the bytes of
+`directives.py`. This is conservative: any behavior-module edit invalidates an
+old PPO manifest, but it prevents silently evaluating a checkpoint with
+different directive semantics.
+
+Use explicit exceptions so logs and tests can distinguish failures:
+
+```python
+class DirectiveError(RuntimeError): ...
+class UnknownDirectiveError(DirectiveError): ...
+class InapplicableDirectiveError(DirectiveError): ...
+class DirectiveExecutorError(DirectiveError): ...
+class DirectiveEffectError(DirectiveError): ...
+```
+
+The vocabulary spike implements one `DirectiveBehavior` class per frozen
+command. All tie-breaking inside behaviors uses canonical agent order followed
+by the lowest destination ID. Behaviors receive only `DirectiveContext`; they
+must not access `wrapper.unwrapped` or hidden simulator state.
+
+### 7.5 Directive SB3 facade (`sb3.py`)
+
+```python
+class DirectiveSb3Env(gym.Env[NDArray[np.float32], int]):
+    metadata = {"render_modes": ["human"]}
+
+    def __init__(
+        self,
+        environment_id: str,
+        vocabulary: DirectiveVocabulary,
+        registry: DirectiveRegistry,
+        episode_seeds: Sequence[int],
+        episode_steps: int = 500,
+    ) -> None: ...
+
+    @property
+    def context(self) -> DirectiveContext: ...
+    def action_masks(self) -> NDArray[np.bool_]: ...
+    def reset(
+        self,
+        *,
+        seed: int | None = None,
+        options: dict[str, Any] | None = None,
+    ) -> tuple[NDArray[np.float32], dict[str, Any]]: ...
+    def step(
+        self, action: int | NDArray[np.int64]
+    ) -> tuple[NDArray[np.float32], float, bool, bool, dict[str, Any]]: ...
+    def render(self) -> Any: ...
+    def close(self) -> None: ...
+```
+
+`DirectiveSb3Env` constructs exactly one `TarwareEnvWrapper` and delegates all
+simulator lifecycle and action validation to it. The observation space copies
+the shape and dtype of `WarehouseObservation.encode()`. The action space is the
+shared `MaskAwareDiscrete(vocabulary.size, self.action_masks)` from
+`warehouse_ai.env.sb3`. Its `sample()` honors an explicit Gymnasium mask when
+provided and otherwise samples from the live mask provider, allowing
+`check_env()` to exercise only applicable directives. `reset(seed=...)` uses
+that explicit seed; otherwise it cycles deterministically through
+`episode_seeds`. The episode counter resets only when a new facade instance is
+constructed.
+
+`step()` accepts only a scalar integer, captures context, verifies the directive
+mask, calls `registry.execute(..., wrapper=self.wrapper)`, and steps the wrapper.
+Reward is the sum of TA-RWARE rewards with no shaping. It sets `truncated=True`
+at `episode_steps`, preserves simulator termination separately, and adds only
+serializable diagnostic fields to `info`: directive ID, command, raw executed
+destinations, and executor status.
+
+Executor failure is an invariant violation during PPO training and raises; it
+does not silently fall back. Silent training recovery would teach against a
+different transition function.
+
+### 7.6 PPO facade and training (`ppo.py`)
+
+```python
+class DirectivePpoPolicy:
+    def __init__(
+        self,
+        model: MaskablePPO,
+        vocabulary: DirectiveVocabulary,
+        checkpoint_sha256: str,
+    ) -> None: ...
+
+    @classmethod
+    def load(
+        cls,
+        checkpoint: Path,
+        vocabulary: DirectiveVocabulary,
+        manifest: DirectivePpoManifest,
+    ) -> DirectivePpoPolicy: ...
+
+    def predict(
+        self,
+        context: DirectiveContext,
+        directive_mask: NDArray[np.bool_],
+    ) -> DirectivePrediction: ...
+
+
+def train_directive_ppo(
+    config: DirectivePpoConfig,
+    vocabulary: DirectiveVocabulary,
+    registry: DirectiveRegistry,
+    output_directory: Path,
+) -> DirectivePpoManifest: ...
+
+
+def evaluate_directive_ppo(
+    policy: DirectivePpoPolicy,
+    config: DirectivePpoConfig,
+    vocabulary: DirectiveVocabulary,
+    registry: DirectiveRegistry,
+) -> DirectivePpoValidationSummary: ...
+```
+
+`predict()` verifies mask shape and at least one valid action. Under
+`torch.inference_mode()`, it obtains the masked categorical distribution and
+value estimate from the SB3 policy, chooses the highest-probability valid ID,
+and returns probabilities in directive-ID order. Equal probabilities select the
+lowest directive ID. It must not sample during validation or the demo.
+
+`train_directive_ppo()` constructs separate training and validation environment
+instances. Use `MaskablePPO("MlpPolicy", ...)` with `net_arch=dict(pi=[64],
+vf=[64])`, the config values above, `vf_coef=0.5`, and `max_grad_norm=0.5`.
+Evaluate every 5,000 training steps, retain only the best checkpoint by the
+declared validation rule, and write the manifest after hashing the saved file.
+
+`DirectivePpoManifest` records schema version, environment ID, vocabulary and
+behavior digests, package versions, seeds, hyperparameters, checkpoint SHA-256,
+validation summary, Git commit, dirty flag, and UTC timestamp. Loading fails if
+the current vocabulary or behavior digest differs.
+
+### 7.7 Prompt construction (`prompting.py`)
+
+```python
+class ChatMessage(DemoModel):
+    role: Literal["system", "user"]
+    content: str
+
+
+class PromptEnvelope(DemoModel):
+    messages: tuple[ChatMessage, ...]
+    response_schema: dict[str, Any]
+
+
+class GemmaPromptBuilder:
+    def build(self, request: ActionerRequest) -> PromptEnvelope: ...
+    def serialize_state(self, context: DirectiveContext) -> str: ...
+    def response_schema(self, context: DirectiveContext) -> dict[str, Any]: ...
+```
+
+Use one fixed system message defining Gemma as the actioner and one user message
+containing sections in this exact order: objective, directive, agents,
+requested shelves, goals, legal destinations, and output instructions. Sort all
+records by their existing canonical order. Do not include PPO probabilities or
+value estimates in the prompt; the LLM should interpret the chosen token, not
+second-guess PPO confidence.
+
+The generated JSON Schema requires `destinations` and `reason`, forbids extra
+keys, and gives `destinations` `minItems == maxItems == len(agents)`. Integer
+bounds are `0` through `action_mask.destination_count - 1`. The prompt explains
+which vector position belongs to each agent and lists each row's legal IDs.
+
+### 7.8 Local Gemma actioner (`actioner.py`)
+
+```python
+PlanT_co = TypeVar("PlanT_co", covariant=True)
+
+
+class Actioner(Protocol[PlanT_co]):
+    def act(
+        self,
+        request: ActionerRequest,
+        wrapper: TarwareEnvWrapper,
+    ) -> ActionerResult[PlanT_co]: ...
+
+
+class LlamaCppActioner(Actioner[SingleJointActionPlan]):
+    def __init__(
+        self,
+        config: LlamaCppConfig,
+        prompt_builder: GemmaPromptBuilder,
+        registry: DirectiveRegistry,
+        client: httpx.Client | None = None,
+    ) -> None: ...
+
+    def health(self) -> ModelHealth: ...
+    def act(
+        self,
+        request: ActionerRequest,
+        wrapper: TarwareEnvWrapper,
+    ) -> ActionerResult[SingleJointActionPlan]: ...
+    def close(self) -> None: ...
+```
+
+`health()` calls `/health`, then `/v1/models`, and rejects a server whose
+advertised model does not match the configured model ID. `act()` POSTs to
+`/v1/chat/completions` with deterministic sampling and this response wrapper:
+
+```python
+{
+    "type": "json_schema",
+    "json_schema": {
+        "name": "warehouse_single_action",
+        "strict": True,
+        "schema": envelope.response_schema,
+    },
+}
+```
+
+It reads only `choices[0].message.content`, validates `GemmaActionResponse`,
+verifies vector length, calls `wrapper.decode()`, calls
+`registry.validate_effect()`, and returns a `SingleJointActionPlan` tied to the
+request's `state_id`. The preflight must confirm this request shape against the
+pinned `llama.cpp` version before an episode can run.
+
+Define `ActionerError` subclasses for health, timeout, HTTP, empty response,
+schema, decoding, stale-state, and directive-effect failures. Do not retry inside
+the client. Accept an injected `httpx.Client` so unit tests never require a real
+server.
+
+```python
+class ActionerError(RuntimeError): ...
+class ActionerHealthError(ActionerError): ...
+class ActionerTimeoutError(ActionerError): ...
+class ActionerHttpError(ActionerError): ...
+class EmptyActionerResponseError(ActionerError): ...
+class ActionerSchemaError(ActionerError): ...
+class ActionerDecodeError(ActionerError): ...
+class ActionerEffectError(ActionerError): ...
+class StaleActionPlanError(ActionerError): ...
+```
+
+Wrap Pydantic response errors, `InvalidJointActionError`, and
+`DirectiveEffectError` in the corresponding actioner error while retaining the
+original exception as `__cause__`. `StaleActionPlanError` is raised by the
+controller after it recaptures the live context.
+
+The generic `Actioner[PlanT]` is the only future-facing seam. A future sequence
+implementation must introduce its own plan model, schema, validation, and
+execution policy; it must not change `DirectivePrediction`.
+
+### 7.9 Controllers (`controllers.py`)
+
+```python
+class DemoController(Protocol):
+    @property
+    def controller_name(self) -> Literal["ppo_executor", "ppo_gemma"]: ...
+    def choose_action(self, wrapper: TarwareEnvWrapper) -> DemoDecision: ...
+
+
+class DirectiveExecutorController:
+    def __init__(
+        self,
+        policy: DirectivePpoPolicy,
+        registry: DirectiveRegistry,
+    ) -> None: ...
+    def choose_action(self, wrapper: TarwareEnvWrapper) -> DemoDecision: ...
+
+
+class DirectiveGemmaController:
+    def __init__(
+        self,
+        policy: DirectivePpoPolicy,
+        registry: DirectiveRegistry,
+        actioner: Actioner[SingleJointActionPlan],
+    ) -> None: ...
+    def choose_action(self, wrapper: TarwareEnvWrapper) -> DemoDecision: ...
+```
+
+Both controllers capture context, compute the same directive mask, and obtain a
+deterministic prediction from the same frozen PPO policy.
+
+The executor controller always calls `registry.execute()`. The Gemma controller
+bypasses the LLM only when the selected directive is the wait directive and
+`wrapper.no_op()` satisfies its effect rule. Otherwise it calls the actioner,
+recaptures context after the response, and accepts the plan only if `state_id`
+is unchanged. Any `ActionerError` invokes `registry.execute()` for the same
+selected directive. If that fallback unexpectedly fails, apply
+`wrapper.no_op()`, set `source="automatic_no_op"`, and record an invariant-level
+failure; do not terminate the live demo.
+
+Neither controller calls `wrapper.project()`. The returned `DemoDecision.action`
+is the exact action subsequently sent to `wrapper.step()`.
+
+### 7.10 Episode runner and artifacts (`evaluation.py`, `artifacts.py`)
+
+```python
+class DirectivePpoValidationSummary(DemoModel):
+    seeds: tuple[int, ...]
+    mean_completed_tasks: NonNegativeFloat
+    mean_return: float
+    directive_counts: dict[str, NonNegativeInt]
+    non_wait_directives_used: NonNegativeInt
+    inapplicable_directives: NonNegativeInt
+
+
+class DirectivePpoManifest(DemoModel):
+    schema_version: Literal[1]
+    environment_id: str
+    vocabulary_sha256: str
+    behavior_sha256: str
+    checkpoint_sha256: str
+    train_seeds: tuple[int, ...]
+    validation_seeds: tuple[int, ...]
+    algorithm_seed: int
+    hyperparameters: dict[str, JsonValue]
+    validation: DirectivePpoValidationSummary
+    package_versions: dict[str, str]
+    git_commit: str
+    dirty_worktree: bool
+    created_at_utc: datetime
+
+
+class EpisodeResult(DemoModel):
+    controller: Literal["ppo_executor", "ppo_gemma"]
+    seed: int
+    steps: PositiveInt
+    completed_tasks: NonNegativeInt
+    total_return: float
+    clashes: NonNegativeInt
+    stuck_events: NonNegativeInt
+    wall_seconds: NonNegativeFloat
+    directive_counts: dict[str, NonNegativeInt]
+    llm_calls: NonNegativeInt
+    invalid_actions: NonNegativeInt
+    effect_violations: NonNegativeInt
+    fallbacks: NonNegativeInt
+    llm_latency_median_ms: NonNegativeFloat | None
+    llm_latency_p95_ms: NonNegativeFloat | None
+
+
+class DemoRunSummary(DemoModel):
+    schema_version: Literal[1]
+    demo_only: Literal[True]
+    environment_id: str
+    seed: int
+    ppo_checkpoint_sha256: str
+    vocabulary_sha256: str
+    directive_probe_report_sha256: str
+    preflight_report_sha256: str
+    executor_episode: EpisodeResult
+    gemma_episode: EpisodeResult
+    output_directory: Path
+
+
+def run_episode(
+    wrapper: TarwareEnvWrapper,
+    controller: DemoController,
+    *,
+    seed: int,
+    max_steps: int,
+    render: bool,
+    decision_log_path: Path,
+) -> EpisodeResult: ...
+
+
+def run_matched_demo(config: DirectiveDemoConfig) -> DemoRunSummary: ...
+
+
+def sha256_file(path: Path) -> str: ...
+def capture_git_state(repository: Path) -> tuple[str, bool]: ...
+def write_json_atomic(path: Path, model: DemoModel) -> None: ...
+```
+
+`run_episode()` resets explicitly, chooses exactly one action per simulator
+step, optionally renders after each step, writes one flushed JSONL record per
+decision, and stops on all-agent termination, all-agent truncation, or
+`max_steps`. Derive completed tasks and collision/stuck metrics from the actual
+pinned TA-RWARE `info` keys verified by the compatibility spike; do not invent
+new simulator meanings.
+
+`run_matched_demo()` verifies manifests and seed exclusions, runs the PPO plus
+deterministic executor first, creates a fresh wrapper for the PPO plus Gemma run,
+and saves both episode results plus one comparison summary. It labels all output
+`demo_only: true` and never computes significance or an improvement claim.
+
+Manifest verification checks checkpoint, vocabulary, behavior-registry, and
+preflight-report digests before either episode starts. `write_json_atomic()`
+writes to a sibling temporary file and replaces only the final small JSON
+artifact after serialization succeeds; JSONL decision records remain append-only
+within a newly created run directory.
+
+Write artifacts under
+`results/demo/<run-id>/`, where the UTC run ID includes the controller name,
+timestamp, and short Git commit. Small summaries may be committed; raw JSONL and
+checkpoints remain ignored.
+
+### 7.11 Script contracts
+
+Each script returns exit code zero only when its stated artifact is complete:
+
+```text
+python scripts/probe_directives.py --config configs/demo/directive-probe-v1.yaml
+python scripts/train_directive_ppo.py --config configs/demo/directive-ppo-v1.yaml
+python scripts/probe_gemma_actioner.py --config configs/demo/directive-demo-v1.yaml
+python scripts/run_directive_demo.py --config configs/demo/directive-demo-v1.yaml
+```
+
+- `probe_directives.py` exercises applicability, executors, and action effects
+  across representative seeded trajectories and writes coverage only; it does
+  not train.
+- `train_directive_ppo.py` validates the vocabulary spike output, trains,
+  evaluates, and writes a checkpoint manifest.
+- `probe_gemma_actioner.py` performs E4B preflight and directive sensitivity;
+  it exits with a distinct documented code indicating that E2B should be used.
+- `run_directive_demo.py` requires a passing actioner preflight artifact for the
+  selected model, runs both matched episodes, and prints artifact locations.
+
+### 7.12 Implementation order and gates
+
+Implement the following class groups in order. Each phase should be one focused
+change that leaves the repository runnable and tested.
+
+#### Phase 1: Shared contracts and configuration
+
+Create:
+
+- In `models.py`: `DemoModel`, `DirectiveDefinition`,
+  `DirectiveVocabulary`, `DirectiveContext`, `DirectiveProbeConfig`,
+  `DirectivePpoConfig`, `LlamaCppConfig`, and `DirectiveDemoConfig`.
+- In `artifacts.py`: `sha256_file()`, `capture_git_state()`,
+  `write_json_atomic()`, and canonical JSON helpers used by model digests and
+  `DirectiveContext.capture()`.
+- In `models.py`: `DirectiveProbeReport` because it is the output contract for
+  the next phase.
+
+Do not create PPO, prompt, controller, or LLM classes yet. Phase 1 may import
+only the existing project-owned domain records and `TarwareEnvWrapper`.
+
+Deliverables:
+
+- The four validated YAML config files parse through `load_yaml_config()`.
+- Canonical vocabulary and state digests repeat byte-for-byte.
+- Invalid IDs, duplicate behavior keys, overlapping seeds, absolute committed
+  paths, and malformed URLs fail before simulator construction.
+
+Gate: all Phase 1 model and artifact tests pass, and loading each committed
+config performs no network, model, or simulator work.
+
+#### Phase 2: Directive semantics and deterministic executors
+
+Create in `directives.py`:
+
+- `DirectiveBehavior` protocol.
+- `DirectiveRegistry`.
+- `DirectiveError`, `UnknownDirectiveError`,
+  `InapplicableDirectiveError`, `DirectiveExecutorError`, and
+  `DirectiveEffectError`.
+- One concrete `DirectiveBehavior` class per command retained by the vocabulary
+  spike. These concrete class names are decided by that spike and recorded in
+  its research-log entry; they are not guessed in advance.
+
+Create `probe_directives.py` only after the registry API is tested. The script
+loads Phase 1 models, constructs real `DirectiveContext` values, and writes a
+`DirectiveProbeReport`.
+
+Phase 2 depends only on Phase 1 plus existing domain/environment classes. It
+must not import SB3, HTTP clients, prompt builders, or controllers.
+
+Deliverables:
+
+- Every sampled state has at least one applicable directive, including wait.
+- Every applicable executor returns a destination tuple that
+  `TarwareEnvWrapper.decode()` converts into a valid `JointAction` satisfying
+  its directive-effect rule.
+- Each behavior is deterministic under repeated identical contexts.
+- `behavior_digest()` changes when any behavior binding or implementation
+  changes.
+
+Gate: `probe_directives.py` produces a passing report for all committed probe
+seeds. Freeze `directives-v1.yaml` and the behavior version before Phase 3.
+
+#### Phase 3: Directive PPO
+
+Create:
+
+- In existing `warehouse_ai.env.sb3`: add generic `MaskAwareDiscrete` beside
+  `MaskAwareMultiDiscrete`; do not change `TarwareSb3Env` behavior.
+- In `demo/sb3.py`: `DirectiveSb3Env`, which composes exactly one
+  `TarwareEnvWrapper`.
+- In the Phase 3 group of `models.py`: `DirectivePrediction`,
+  `DirectivePpoValidationSummary`, and `DirectivePpoManifest`.
+- In `ppo.py`: `DirectivePpoPolicy`, `train_directive_ppo()`, and
+  `evaluate_directive_ppo()`.
+- `train_directive_ppo.py` as the thin command-line adapter around those APIs.
+
+Phase 3 may depend on Phases 1-2, Gymnasium, SB3-Contrib, and PyTorch. It must
+not know about Gemma, prompts, HTTP, actioner plans, or demo rendering.
+
+Deliverables:
+
+- `DirectiveSb3Env` passes Gymnasium checks and MaskablePPO consumes its
+  one-dimensional directive mask.
+- Executor failures stop training instead of silently changing transitions.
+- PPO save/reload preserves the deterministic directive and probabilities for
+  fixed observation-mask pairs.
+- Validation writes a manifest tied to vocabulary, behavior, checkpoint, seed,
+  dependency, and Git digests.
+- The selected policy uses at least two non-wait directives on validation
+  episodes.
+
+Gate: `train_directive_ppo.py` creates a verified checkpoint and passing
+validation manifest from the committed config.
+
+#### Phase 4: Actioner-neutral orchestration with a fake client
+
+Create:
+
+- In the Phase 4 group of `models.py`: `ActionerRequest`,
+  `GemmaActionResponse`, `SingleJointActionPlan`, generic `ActionerResult`,
+  `DemoDecision`, and `DemoStepRecord`.
+- In `prompting.py`: `ChatMessage`, `PromptEnvelope`, and
+  `GemmaPromptBuilder`.
+- In `actioner.py`: generic `Actioner` protocol and the `ActionerError`
+  hierarchy, but not the concrete `LlamaCppActioner` yet.
+- In `controllers.py`: `DemoController`,
+  `DirectiveExecutorController`, and `DirectiveGemmaController`.
+- In tests only: `FakeActioner`, implemented against the public `Actioner`
+  protocol rather than added to production code.
+
+Phase 4 depends on Phases 1-3. Production Phase 4 code must not import `httpx`
+or assume a particular model server.
+
+Deliverables:
+
+- Prompt text and JSON schema are deterministic for a fixed request.
+- The executor controller and fake-actioner controller select the same frozen
+  PPO directive from the same context.
+- Valid fake plans reach the wrapper unchanged.
+- Malformed, invalid, effect-violating, timed-out, and stale fake plans use the
+  same directive's deterministic executor fallback.
+- The generic `Actioner[SingleJointActionPlan]` seam works without defining any
+  future sequence-plan class.
+
+Gate: short fake-actioner episodes complete for success and every fallback
+scenario with exact decision records.
+
+#### Phase 5: Real local Gemma actioner
+
+Create:
+
+- In the Phase 5 group of `models.py`: `ModelHealth` and
+  `GemmaPreflightReport`.
+- In `actioner.py`: `LlamaCppActioner` using an injected or owned
+  `httpx.Client`.
+- `probe_gemma_actioner.py` as the only script that decides whether a configured
+  server passes preflight.
+
+Phase 5 depends on the Phase 4 protocol and prompt contracts. Do not change PPO,
+directive behavior, or controller APIs to accommodate model-specific quirks.
+
+Deliverables:
+
+- Health and advertised model identity are verified before generation.
+- The pinned JSON-schema request shape returns strictly parsed single actions.
+- E4B passes validity, directive sensitivity, and p95 latency gates, or the
+  operator explicitly starts E2B and produces a separate passing config/report.
+- Model file, prompt schema, server, offload, context, and hardware provenance
+  are recorded.
+
+Gate: `probe_gemma_actioner.py` produces a passing preflight report for the
+exact server that will be used by the demo.
+
+#### Phase 6: Episode evaluation and matched demonstration
+
+Create:
+
+- In the Phase 6 group of `models.py`: `EpisodeResult` and `DemoRunSummary`.
+- In `evaluation.py`: `run_episode()` and `run_matched_demo()`.
+- In `artifacts.py`: any remaining run-directory and append-only JSONL helpers.
+- `run_directive_demo.py` as composition only; it must not contain controller
+  or metrics logic.
+
+Phase 6 composes the frozen public APIs from Phases 1-5. It may not revise the
+directive vocabulary, behavior rules, PPO checkpoint, prompt schema, or
+preflight result during an episode.
+
+Deliverables:
+
+- One headless PPO-plus-executor episode and one rendered
+  PPO-plus-Gemma-actioner episode use the same seed, settings, vocabulary, and
+  frozen PPO checkpoint.
+- Each decision is flushed to JSONL, and small episode and comparison summaries
+  are atomically written.
+- Digest mismatches stop before reset; runtime LLM failures remain visible as
+  logged deterministic-executor fallbacks.
+- README, project-spec exception, roadmap item, and dated research logs describe
+  observed results without making a statistical improvement claim.
+
+Gate: both 500-step episodes finish without manual intervention and satisfy all
+acceptance criteria in Section 9.
+
+Do not start a later phase when the current gate fails. Fix or revise the
+current phase's contract instead of placing cross-phase workarounds in a later
+module.
+
+After a phase gate passes, treat that phase's public APIs as frozen for this
+prototype. A necessary breaking change must rerun that phase's gate and every
+later completed gate. Internal refactors that preserve signatures, serialized
+schemas, digests, and behavior need only rerun affected tests.
+
+## 8. Tests
 
 ### Unit tests
 
-- Masked top-three extraction returns deterministic candidates in descending
-  score order.
-- Busy agents receive only destination zero.
-- Masked destinations and same-role duplicate destinations never appear.
-- Candidate actions are unique and stable ties use lexicographic ordering.
-- PPO-only candidate zero and hybrid candidate zero decode identically.
-- Compact state serialization is deterministic and contains no hidden simulator
-  state.
-- Dynamic JSON schemas include only the current candidate IDs.
-- Valid Gemma responses select the correct existing action.
-- Unknown IDs, malformed JSON, additional properties, timeouts, server errors,
-  and stale actions all fall back to PPO candidate zero.
-- Decision logs and episode summaries validate against their schemas.
+- Directive YAML rejects duplicate IDs, duplicate commands, invalid versions,
+  and vocabularies outside the four-to-eight class limit.
+- Applicability and action-effect rules are deterministic and covered for every
+  frozen directive.
+- Every reachable test state has at least one applicable directive.
+- Each deterministic directive executor uses only controller-visible state and
+  returns a strict valid action satisfying its action-effect rule.
+- Directive masks match the frozen vocabulary and reject inapplicable actions.
+- Shared `MaskAwareDiscrete.sample()` never returns a masked directive, and the
+  directive facade passes Gymnasium's checker without changing
+  `TarwareSb3Env`.
+- PPO policy input, action distribution, and value shapes match the frozen
+  observation and vocabulary.
+- Fixed PPO checkpoints, observations, and masks produce identical directive
+  predictions.
+- Compact prompt serialization is deterministic and contains no hidden state.
+- JSON schemas match the current canonical agent count and destination range.
+- Valid LLM output decodes to the expected `JointAction`.
+- Malformed JSON, wrong-length vectors, out-of-range or masked destinations,
+  same-role conflicts, timeouts, server errors, and stale state all trigger the
+  deterministic directive-executor fallback.
+- Checkpoint, vocabulary, behavior, prompt-schema, model-file, and preflight
+  digest mismatches stop before an episode begins.
+- Decision logs, manifests, and episode summaries validate against their
+  schemas.
 
 ### Integration tests
 
-- Run a short TA-RWARE episode using a stub selector that always chooses
-  candidate zero.
-- Run a short episode using a fake local HTTP server that selects different
-  valid candidate IDs.
-- Force malformed and delayed responses and verify the episode still completes
-  using logged fallbacks.
-- Save and reload the PPO checkpoint and confirm identical top-three candidates
-  for a fixed observation.
+- Run the directive Gymnasium adapter through environment checks and a short
+  multi-seed rollout.
+- Train MaskablePPO briefly and save/reload an identical directive prediction.
+- Run a short TA-RWARE episode with a fake actioner returning valid actions.
+- Force malformed and delayed fake responses and verify the episode completes
+  with logged deterministic-executor fallbacks.
+- Feed identical applicable states with different directives to the fake
+  actioner and verify directive-specific action-effect validation.
 - Run the real Gemma preflight separately from ordinary automated tests and
   record it as a local hardware smoke test.
 
-## 7. Acceptance criteria
+## 9. Acceptance criteria
 
 The first prototype is complete when:
 
-- A documented clean command trains or loads the prototype PPO checkpoint.
-- The E4B preflight either passes or deterministically selects and records the
-  E2B fallback.
+- The directive-vocabulary spike freezes a versioned four-to-eight command
+  vocabulary with deterministic applicability, executor, and action-effect
+  rules.
+- A clean command trains or loads the directive PPO checkpoint and reproduces
+  its manifest and validation summary.
+- The selected PPO policy uses at least two non-wait directives on validation
+  episodes and never submits an inapplicable directive.
+- E4B preflight passes or deterministically selects and records E2B fallback.
+- The directive-sensitivity probe demonstrates that the selected local model
+  can produce actions satisfying at least two distinct directive-effect rules;
+  otherwise the prototype is reported as blocked rather than treating the
+  neural output as meaningful.
 - Both matched 500-step episodes complete without manual intervention.
-- The hybrid episode renders and visibly reports PPO candidates, Gemma's chosen
-  candidate, its reason, latency, and any fallback.
-- Every action applied by the hybrid is proven to equal an offered candidate or
-  the logged PPO fallback.
-- PPO-only and hybrid summaries use the same checkpoint, seed, environment, and
-  episode length.
+- The rendered episode visibly reports the directive, Gemma action, reason,
+  validation result, latency, and fallback status.
+- Every LLM action is strictly validated before reaching TA-RWARE.
 - Exact configuration and artifact identities are preserved without committing
-  base models or checkpoints.
-- Documentation clearly labels the result as a demonstration rather than
-  evidence that the hybrid outperforms PPO.
+  generated trajectories, base models, or checkpoints.
+- Documentation labels the result as a demonstration and describes future
+  action sequences only as an unresolved main-project extension.
