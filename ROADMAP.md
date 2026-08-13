@@ -40,6 +40,21 @@ constraints, a working simulator smoke command, and a working tiny model step.
 Stop condition: do not scaffold the full hybrid around guessed APIs if this gate
 has not passed.
 
+## Parallel prototype exception: directive demo
+
+The isolated `plan.md` prototype is tracked separately from the main research
+phases. It must not be used to mark the runnable foundation or baseline gates
+complete, and its seeds remain excluded from later scientific evaluation.
+
+- [x] Freeze the four-command directive vocabulary and behavior version.
+- [x] Implement deterministic applicability, executors, and effect validation.
+- [x] Probe all committed seeds with the real TA-RWARE wrapper.
+- [ ] Implement the separate directive PPO phase after this gate remains stable.
+
+Phase 2 of the prototype passed on 2026-08-13: 2,500 states checked across
+seeds 8000-8004 with zero uncovered states, executor failures, or effect
+failures. See [the research log entry](docs/research-log/2026-08-13-directive-semantics.md).
+
 ## Phase 2: runnable project foundation
 
 - [x] Add `pyproject.toml`, the `uv` lockfile, package metadata, and dependency

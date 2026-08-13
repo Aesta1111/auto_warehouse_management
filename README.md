@@ -6,12 +6,15 @@ standalone PPO controller in the TA-RWARE simulator.
 
 ## Current status
 
-The project is in the compatibility-check phase. Local simulator replay,
-rendering, MaskablePPO, and a tiny Gemma 4 projector/LoRA optimizer step are
-verified. Pickled simulator snapshots were rejected in favor of exact
-seed-plus-action replay. The remaining Phase 1 gate is the prepared Linux/A40
-cloud run for pathfinder equivalence, real 4-bit weights, memory, latency, and
-cost. The full training pipeline has not been implemented.
+The main research project remains in the compatibility-check phase. Local
+simulator replay, rendering, MaskablePPO, and a tiny Gemma 4 projector/LoRA
+optimizer step are verified. Pickled simulator snapshots were rejected in favor
+of exact seed-plus-action replay. A separate, unscored directive-demo prototype
+has now completed its directive-semantics probe; it does not advance the main
+research phases or validate the hybrid hypothesis. The remaining Phase 1 gate
+is the prepared Linux/A40 cloud run for pathfinder equivalence, real 4-bit
+weights, memory, latency, and cost. The full training pipeline has not been
+implemented.
 
 The hybrid improving on PPO is a hypothesis, not a required result. Negative and
 inconclusive findings must be reported without changing the primary metric after
@@ -68,6 +71,18 @@ uv run python scripts/probe_tarware_compatibility.py --seeds 0 1 2 3 4
 uv run python scripts/probe_sb3.py --timesteps 512
 uv run python scripts/probe_gemma_tiny.py
 ```
+
+## Directive prototype probe
+
+The isolated prototype's Phase 2 registry and live-seed probe can be rerun with:
+
+```powershell
+uv run python scripts/probe_directives.py --config configs/demo/directive-probe-v1.yaml
+```
+
+This checks the frozen four-directive vocabulary and deterministic executor
+effects on the five committed probe seeds. Its result is a prototype artifact,
+not a scientific baseline or a main-project phase completion.
 
 The deferred RunPod command is `bash scripts/run_phase1_cloud.sh` from an exact
 checked-out project commit.

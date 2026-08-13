@@ -1,6 +1,6 @@
 schema_version: 1
 vocabulary_id: directives-v1
-behavior_version: candidate-v1
+behavior_version: directives-v1
 wait_directive_id: 0
 directives:
   - directive_id: 0

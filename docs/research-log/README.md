@@ -27,3 +27,4 @@ Add completed entries below in chronological order:
 | --- | --- | --- | --- |
 | 2026-06-20 | TA-RWARE source and installation audit | Native Windows blocked by upstream pathfinder build; Linux smoke test required | [Entry](2026-06-20-ta-rware-source-audit.md) |
 | 2026-07-15 | Phase 1 local compatibility handoff | Replay, SB3, and tiny Gemma pass locally; cloud proof remains | [Entry](2026-07-15-phase1-local-compatibility.md) |
+| 2026-08-13 | Directive-demo Phase 2 semantics | Four directive behaviors and live five-seed probe pass; prototype remains unscored | [Entry](2026-08-13-directive-semantics.md) |

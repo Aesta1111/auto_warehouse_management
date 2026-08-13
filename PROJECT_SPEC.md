@@ -481,3 +481,15 @@ These are implementation discoveries, not open product preferences:
 - Verify quantized LoRA and soft-token injection with the selected stack.
 - Benchmark memory, latency, and estimated cloud cost before generating the full dataset.
 - Define numeric candidate count, rollout horizon, score weights, PPO training budget, and seed partitions after the compatibility measurements; commit them before final data generation or evaluation.
+
+## 14. Isolated directive-demo exception
+
+`plan.md` defines a separate neural-directive plus frozen-Gemma actioner demo.
+The prototype is deliberately unscored and does not fine-tune Gemma, inject soft
+tokens, change the main primary metric, consume held-out research seeds, or
+complete any main-project phase gate. Its Phase 2 vocabulary is frozen as four
+controller-visible commands: `wait`, `service-requested-shelf`,
+`deliver-carried-shelf`, and `reposition-idle-agent`. Deterministic executors
+and effect validators are implemented in `warehouse_ai.demo.directives`; the
+live probe evidence is recorded in the research log. Future action sequences
+remain an unresolved main-project extension.
