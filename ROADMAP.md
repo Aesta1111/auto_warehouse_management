@@ -49,11 +49,17 @@ complete, and its seeds remain excluded from later scientific evaluation.
 - [x] Freeze the four-command directive vocabulary and behavior version.
 - [x] Implement deterministic applicability, executors, and effect validation.
 - [x] Probe all committed seeds with the real TA-RWARE wrapper.
-- [ ] Implement the separate directive PPO phase after this gate remains stable.
+- [x] Implement the separate directive PPO phase after this gate remains stable.
 
 Phase 2 of the prototype passed on 2026-08-13: 2,500 states checked across
 seeds 8000-8004 with zero uncovered states, executor failures, or effect
 failures. See [the research log entry](docs/research-log/2026-08-13-directive-semantics.md).
+
+Directive-demo Phase 3 passed on 2026-08-16: the committed 25,000-timestep
+MaskablePPO run produced a digest-verified checkpoint and reproducible validation
+summary on seeds 8200-8203. The selected policy used two non-wait directives,
+selected no inapplicable directives, and reproduced after checkpoint reload. See
+[the Phase 3 research log entry](docs/research-log/2026-08-16-directive-ppo.md).
 
 ## Phase 2: runnable project foundation
 

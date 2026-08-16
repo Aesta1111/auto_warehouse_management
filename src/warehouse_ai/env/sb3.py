@@ -13,6 +13,45 @@ from warehouse_ai.domain import ActionRepair
 from warehouse_ai.env.tarware import TarwareEnvWrapper
 
 
+class MaskAwareDiscrete(gym.spaces.Discrete):
+    """A ``Discrete`` space whose samples respect a live action mask.
+
+    Gymnasium's explicit ``Discrete.sample(mask=...)`` contract uses an
+    ``int8`` vector, while an environment's ``action_masks()`` method usually
+    returns booleans.  This space accepts both representations, validates the
+    mask, and samples only from currently valid IDs.  An all-zero mask is an
+    invariant violation for the directive environment because the wait
+    directive must always remain available.
+    """
+
+    def __init__(
+        self,
+        n: int,
+        mask_provider: Callable[[], NDArray[np.bool_]],
+    ) -> None:
+        super().__init__(n)
+        self._mask_provider = mask_provider
+
+    def sample(self, mask: Any = None) -> np.int64:
+        raw_mask = self._mask_provider() if mask is None else mask
+        mask_array = np.asarray(raw_mask)
+        if mask_array.shape != (self.n,):
+            raise ValueError(
+                f"discrete action mask shape {mask_array.shape} does not match {(self.n,)}"
+            )
+        if not np.issubdtype(mask_array.dtype, np.bool_) and not np.issubdtype(
+            mask_array.dtype, np.integer
+        ):
+            raise ValueError("discrete action mask must contain booleans or integers")
+        if not np.all(np.logical_or(mask_array == 0, mask_array == 1)):
+            raise ValueError("discrete action mask values must be 0 or 1")
+
+        valid_actions = np.flatnonzero(mask_array.astype(np.bool_, copy=False))
+        if len(valid_actions) == 0:
+            raise ValueError("discrete action mask must allow at least one action")
+        return np.int64(self.start + int(self.np_random.choice(valid_actions)))
+
+
 class MaskAwareMultiDiscrete(gym.spaces.MultiDiscrete):
     """A ``MultiDiscrete`` space whose random samples respect live masks.
 

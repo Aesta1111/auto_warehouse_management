@@ -491,5 +491,9 @@ complete any main-project phase gate. Its Phase 2 vocabulary is frozen as four
 controller-visible commands: `wait`, `service-requested-shelf`,
 `deliver-carried-shelf`, and `reposition-idle-agent`. Deterministic executors
 and effect validators are implemented in `warehouse_ai.demo.directives`; the
-live probe evidence is recorded in the research log. Future action sequences
+live probe evidence is recorded in the research log. The prototype's Phase 3
+directive PPO now uses a one-dimensional masked `Discrete(4)` action space and
+the existing strict `TarwareEnvWrapper` for deterministic training execution.
+Its checkpoint and manifest are prototype-only artifacts and cannot become the
+PPO checkpoint for the main scientific experiment. Future action sequences
 remain an unresolved main-project extension.

@@ -27,13 +27,22 @@ from warehouse_ai.demo.models import (
     DirectiveContext,
     DirectiveDefinition,
     DirectiveDemoConfig,
+    DirectivePpoManifest,
     DirectivePpoConfig,
+    DirectivePpoValidationSummary,
     DirectiveProbeConfig,
     DirectiveProbeReport,
+    DirectivePrediction,
     DirectiveVocabulary,
     LlamaCppConfig,
     load_yaml_config,
 )
+from warehouse_ai.demo.ppo import (
+    DirectivePpoPolicy,
+    evaluate_directive_ppo,
+    train_directive_ppo,
+)
+from warehouse_ai.demo.sb3 import DirectiveSb3Env
 
 __all__ = [
     "DemoModel",
@@ -42,13 +51,18 @@ __all__ = [
     "DirectiveBehavior",
     "DirectiveDefinition",
     "DirectiveDemoConfig",
+    "DirectivePpoManifest",
     "DirectiveEffectError",
     "DirectiveError",
     "DirectiveExecutorError",
     "DirectivePpoConfig",
+    "DirectivePpoPolicy",
+    "DirectivePpoValidationSummary",
     "DirectiveProbeConfig",
     "DirectiveProbeReport",
+    "DirectivePrediction",
     "DirectiveRegistry",
+    "DirectiveSb3Env",
     "DirectiveVocabulary",
     "InapplicableDirectiveError",
     "LlamaCppConfig",
@@ -62,6 +76,8 @@ __all__ = [
     "capture_git_state",
     "default_behaviors",
     "load_yaml_config",
+    "evaluate_directive_ppo",
     "sha256_file",
+    "train_directive_ppo",
     "write_json_atomic",
 ]

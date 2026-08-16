@@ -10,11 +10,11 @@ The main research project remains in the compatibility-check phase. Local
 simulator replay, rendering, MaskablePPO, and a tiny Gemma 4 projector/LoRA
 optimizer step are verified. Pickled simulator snapshots were rejected in favor
 of exact seed-plus-action replay. A separate, unscored directive-demo prototype
-has now completed its directive-semantics probe; it does not advance the main
-research phases or validate the hybrid hypothesis. The remaining Phase 1 gate
-is the prepared Linux/A40 cloud run for pathfinder equivalence, real 4-bit
-weights, memory, latency, and cost. The full training pipeline has not been
-implemented.
+has completed its directive-semantics probe and Phase 3 directive PPO gate; it
+does not advance the main research phases or validate the hybrid hypothesis.
+The remaining Phase 1 gate is the prepared Linux/A40 cloud run for pathfinder
+equivalence, real 4-bit weights, memory, latency, and cost. The main training
+pipeline has not been implemented.
 
 The hybrid improving on PPO is a hypothesis, not a required result. Negative and
 inconclusive findings must be reported without changing the primary metric after
@@ -83,6 +83,18 @@ uv run python scripts/probe_directives.py --config configs/demo/directive-probe-
 This checks the frozen four-directive vocabulary and deterministic executor
 effects on the five committed probe seeds. Its result is a prototype artifact,
 not a scientific baseline or a main-project phase completion.
+
+Train the isolated directive PPO policy with the committed prototype seeds:
+
+```powershell
+uv run python scripts/train_directive_ppo.py --config configs/demo/directive-ppo-v1.yaml
+```
+
+The command writes a small manifest and an ignored checkpoint under
+`results/demo/directive-ppo-v1/`. The manifest records vocabulary and behavior
+digests, seed partitions, package versions, validation metrics, and the
+checkpoint SHA-256. Gemma/actioner phases are intentionally not included in
+this Phase 3 command.
 
 The deferred RunPod command is `bash scripts/run_phase1_cloud.sh` from an exact
 checked-out project commit.

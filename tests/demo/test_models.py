@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -8,6 +9,7 @@ from pydantic import ValidationError
 
 from warehouse_ai.demo.models import (
     DirectiveContext,
+    DirectiveDefinition,
     DirectiveDemoConfig,
     DirectivePpoConfig,
     DirectiveProbeConfig,
@@ -48,31 +50,34 @@ def test_vocabulary_digest_is_stable_and_ids_are_canonical() -> None:
         vocabulary_id="v1",
         behavior_version="b1",
         wait_directive_id=0,
-        directives=(
-            {
-                "directive_id": 2,
-                "command": "two",
-                "description": "Two",
-                "behavior_key": "two",
-            },
-            {
-                "directive_id": 0,
-                "command": "wait",
-                "description": "Wait",
-                "behavior_key": "wait",
-            },
-            {
-                "directive_id": 3,
-                "command": "three",
-                "description": "Three",
-                "behavior_key": "three",
-            },
-            {
-                "directive_id": 1,
-                "command": "one",
-                "description": "One",
-                "behavior_key": "one",
-            },
+        directives=tuple(
+            DirectiveDefinition.model_validate(item)
+            for item in (
+                {
+                    "directive_id": 2,
+                    "command": "two",
+                    "description": "Two",
+                    "behavior_key": "two",
+                },
+                {
+                    "directive_id": 0,
+                    "command": "wait",
+                    "description": "Wait",
+                    "behavior_key": "wait",
+                },
+                {
+                    "directive_id": 3,
+                    "command": "three",
+                    "description": "Three",
+                    "behavior_key": "three",
+                },
+                {
+                    "directive_id": 1,
+                    "command": "one",
+                    "description": "One",
+                    "behavior_key": "one",
+                },
+            )
         ),
     )
     second = first.model_copy(deep=True)
@@ -82,7 +87,7 @@ def test_vocabulary_digest_is_stable_and_ids_are_canonical() -> None:
 
 
 def test_vocabulary_rejects_duplicate_behavior_keys_and_invalid_wait_id() -> None:
-    definitions = [
+    definitions: list[dict[str, str | int]] = [
         {
             "directive_id": 0,
             "command": "wait",
@@ -114,7 +119,9 @@ def test_vocabulary_rejects_duplicate_behavior_keys_and_invalid_wait_id() -> Non
             vocabulary_id="v1",
             behavior_version="b1",
             wait_directive_id=0,
-            directives=definitions,
+            directives=tuple(
+                DirectiveDefinition.model_validate(item) for item in definitions
+            ),
         )
 
     definitions[2]["behavior_key"] = "two"
@@ -124,7 +131,9 @@ def test_vocabulary_rejects_duplicate_behavior_keys_and_invalid_wait_id() -> Non
             vocabulary_id="v1",
             behavior_version="b1",
             wait_directive_id=9,
-            directives=definitions,
+            directives=tuple(
+                DirectiveDefinition.model_validate(item) for item in definitions
+            ),
         )
 
 
@@ -147,7 +156,7 @@ def test_configs_reject_absolute_paths_overlapping_seeds_and_bad_urls() -> None:
 
     with pytest.raises(ValidationError, match="base_url"):
         LlamaCppConfig(
-            base_url="not-a-url",
+            base_url=cast(Any, "not-a-url"),
             model_id="gemma",
             model_file_sha256="0" * 64,
             context_size=1,
@@ -191,8 +200,8 @@ class _ContextWrapper:
 
 
 def test_context_capture_hashes_observation_and_mask_bytes() -> None:
-    first = DirectiveContext.capture(_ContextWrapper())
-    second = DirectiveContext.capture(_ContextWrapper())
+    first = DirectiveContext.capture(cast(Any, _ContextWrapper()))
+    second = DirectiveContext.capture(cast(Any, _ContextWrapper()))
 
     assert len(first.state_id) == 64
     assert first.state_id == second.state_id

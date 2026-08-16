@@ -3,3 +3,13 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .ruff_cache/
+
+# Prototype and experiment artifacts stay outside source control.
+results/demo/**/*.zip
+results/demo/**/*.jsonl
+results/demo/**/*.log
+*.gguf
+*.safetensors
+*.ckpt
+*.pth
+*.pt

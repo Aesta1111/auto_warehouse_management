@@ -1,13 +1,16 @@
 """Immutable records and strict configuration for the directive prototype.
 
-Only Phase 1 contracts live here. PPO, prompting, actioner, and controller
-records are intentionally added in their respective later phases.
+Phase 1 shared contracts and Phase 3 directive-PPO records live here. Prompting,
+actioner, and controller records remain intentionally deferred to their later
+prototype phases.
 """
 
 from __future__ import annotations
 
+import math
 import re
 from collections.abc import Mapping, Sequence
+from datetime import datetime
 from pathlib import Path, PureWindowsPath
 from typing import TYPE_CHECKING, Any, Literal, Self, TypeVar
 
@@ -17,7 +20,9 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    JsonValue,
     NonNegativeInt,
+    NonNegativeFloat,
     PositiveFloat,
     PositiveInt,
     field_validator,
@@ -194,6 +199,111 @@ class DirectiveContext(DemoModel):
             observation=observation,
             action_mask=action_mask,
         )
+
+
+class DirectivePrediction(DemoModel):
+    """One deterministic masked-policy prediction at a captured state."""
+
+    state_id: str
+    episode_step: NonNegativeInt
+    directive: DirectiveDefinition
+    probabilities: tuple[float, ...] = Field(min_length=1)
+    value_estimate: float
+    policy_latency_ms: NonNegativeFloat
+    checkpoint_sha256: str
+
+    @field_validator("state_id")
+    @classmethod
+    def validate_prediction_state_id(cls, value: str) -> str:
+        return _nonblank(value, "state_id")
+
+    @field_validator("checkpoint_sha256")
+    @classmethod
+    def validate_prediction_digest(cls, value: str) -> str:
+        return _digest(value, "checkpoint_sha256")
+
+    @field_validator("probabilities")
+    @classmethod
+    def validate_probabilities(cls, value: Sequence[float]) -> tuple[float, ...]:
+        probabilities = tuple(float(item) for item in value)
+        if any(
+            not math.isfinite(item) or item < 0.0 or item > 1.0
+            for item in probabilities
+        ):
+            raise ValueError("probabilities must be finite values in [0, 1]")
+        if not math.isclose(sum(probabilities), 1.0, rel_tol=1e-5, abs_tol=1e-6):
+            raise ValueError("probabilities must sum to one")
+        return probabilities
+
+
+class DirectivePpoValidationSummary(DemoModel):
+    """Validation metrics used to select and audit the prototype policy."""
+
+    seeds: tuple[int, ...]
+    mean_completed_tasks: NonNegativeFloat
+    mean_return: float
+    directive_counts: dict[str, NonNegativeInt]
+    non_wait_directives_used: NonNegativeInt
+    inapplicable_directives: NonNegativeInt
+    masked_action_count: NonNegativeInt = 0
+    mean_entropy: NonNegativeFloat = 0.0
+    collapsed_to_one_non_wait: bool = False
+
+    @field_validator("seeds")
+    @classmethod
+    def validate_summary_seeds(cls, value: Sequence[int]) -> tuple[int, ...]:
+        return _validate_seed_partition(value, "seeds")
+
+
+class DirectivePpoManifest(DemoModel):
+    """Small provenance record for a frozen directive PPO checkpoint."""
+
+    schema_version: Literal[1]
+    environment_id: str
+    vocabulary_sha256: str
+    behavior_sha256: str
+    checkpoint_sha256: str
+    train_seeds: tuple[int, ...]
+    validation_seeds: tuple[int, ...]
+    algorithm_seed: int
+    hyperparameters: dict[str, JsonValue]
+    validation: DirectivePpoValidationSummary
+    package_versions: dict[str, str]
+    git_commit: str
+    dirty_worktree: bool
+    created_at_utc: datetime
+
+    @field_validator("environment_id", "git_commit")
+    @classmethod
+    def validate_manifest_text(cls, value: str, info: Any) -> str:
+        return _nonblank(value, info.field_name)
+
+    @field_validator("vocabulary_sha256", "behavior_sha256", "checkpoint_sha256")
+    @classmethod
+    def validate_manifest_digests(cls, value: str, info: Any) -> str:
+        return _digest(value, info.field_name)
+
+    @field_validator("train_seeds", "validation_seeds")
+    @classmethod
+    def validate_manifest_seeds(
+        cls, value: Sequence[int], info: Any
+    ) -> tuple[int, ...]:
+        return _validate_seed_partition(value, info.field_name)
+
+    @field_validator("created_at_utc")
+    @classmethod
+    def validate_utc_timestamp(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("created_at_utc must include a timezone")
+        return value
+
+    @model_validator(mode="after")
+    def validate_manifest_consistency(self) -> Self:
+        if set(self.train_seeds).intersection(self.validation_seeds):
+            raise ValueError("train_seeds and validation_seeds must be disjoint")
+        if self.validation.seeds != self.validation_seeds:
+            raise ValueError("validation summary seeds must match validation_seeds")
+        return self
 
 
 def _validate_seed_partition(value: Sequence[int], field_name: str) -> tuple[int, ...]:
