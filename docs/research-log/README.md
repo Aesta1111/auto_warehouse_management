@@ -29,3 +29,4 @@ Add completed entries below in chronological order:
 | 2026-07-15 | Phase 1 local compatibility handoff | Replay, SB3, and tiny Gemma pass locally; cloud proof remains | [Entry](2026-07-15-phase1-local-compatibility.md) |
 | 2026-08-13 | Directive-demo Phase 2 semantics | Four directive behaviors and live five-seed probe pass; prototype remains unscored | [Entry](2026-08-13-directive-semantics.md) |
 | 2026-08-16 | Directive-demo Phase 3 PPO | 25,000-step masked PPO checkpoint and deterministic reload validation pass; prototype remains unscored | [Entry](2026-08-16-directive-ppo.md) |
+| 2026-08-18 | Directive-demo Phase 3.5 PPO | Repository-owned PPO/Fabric checkpoint and deterministic reload gate pass; SB3 remains the descriptive reference | [Entry](2026-08-18-directive-ppo-v2.md) |

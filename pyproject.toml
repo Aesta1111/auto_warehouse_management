@@ -26,6 +26,7 @@ dev = [
     "accelerate==1.14.0",
     "bitsandbytes==0.49.2",
     "ipykernel>=7.3.0",
+    "lightning>=2.5,<2.6",
 ]
 
 [build-system]

@@ -199,6 +199,15 @@ the lowest canonical agent's choice, changes later duplicates to no-op, and logs
 each repair. Strict controller decisions continue through rejection-based
 validation.
 
+The isolated directive-demo exception has a separate schema-v2 PPO backend. Its
+public facade preserves Phase 3's SB3 reference path, while Phase 3.5 owns four
+modules with one-way responsibilities: `ppo_math.py` contains pure GAE and loss
+arithmetic, `ppo_buffer.py` owns fixed rollout storage, `ppo_model.py` owns the
+masked actor/value network, and `ppo_training.py` owns simulator collection and
+the explicit Lightning Fabric optimization loop. The v2 path does not use SB3
+training internals. This prototype boundary does not replace the main project's
+PPO architecture decision.
+
 ### Rollout label generator
 
 For each selected training state, compare PPO's top valid candidates with the

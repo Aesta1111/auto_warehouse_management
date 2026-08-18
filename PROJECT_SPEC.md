@@ -494,10 +494,11 @@ and effect validators are implemented in `warehouse_ai.demo.directives`; the
 live probe evidence is recorded in the research log. The prototype's Phase 3
 directive PPO now uses a one-dimensional masked `Discrete(4)` action space and
 the existing strict `TarwareEnvWrapper` for deterministic training execution.
-Phase 3.5 will preserve that MDP while retraining with repository-owned model,
-rollout-buffer, GAE, PPO-loss, collection, and Lightning/Fabric optimization
-components. The Phase 3 SB3 checkpoint remains an immutable reference artifact;
-Phase 3.5 produces a separate versioned checkpoint rather than converting it.
+Phase 3.5 preserved that MDP and retrained with repository-owned model,
+rollout-buffer, GAE, PPO-loss, collection, and explicit Lightning Fabric
+optimization components. Its schema-v2 checkpoint passed deterministic reload
+and validation on 2026-08-18. The Phase 3 SB3 checkpoint remains an immutable
+reference artifact; it was not converted or overwritten.
 Both checkpoints and manifests are prototype-only artifacts and cannot become
 the PPO checkpoint for the main scientific experiment. Future action sequences
 remain an unresolved main-project extension.

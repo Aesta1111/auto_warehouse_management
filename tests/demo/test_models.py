@@ -33,6 +33,9 @@ def test_committed_phase1_configs_load_without_runtime_side_effects() -> None:
     ppo = load_yaml_config(
         ROOT / "configs/demo/directive-ppo-v1.yaml", DirectivePpoConfig
     )
+    ppo_v2 = load_yaml_config(
+        ROOT / "configs/demo/directive-ppo-v2.yaml", DirectivePpoConfig
+    )
     demo = load_yaml_config(
         ROOT / "configs/demo/directive-demo-v1.yaml", DirectiveDemoConfig
     )
@@ -41,6 +44,8 @@ def test_committed_phase1_configs_load_without_runtime_side_effects() -> None:
     assert vocabulary.by_id(vocabulary.wait_directive_id).command == "wait"
     assert probe.vocabulary_path.as_posix() == "configs/demo/directives-v1.yaml"
     assert ppo.train_seeds[-1] == 8115
+    assert ppo_v2.backend == "lightning-fabric"
+    assert ppo_v2.value_coefficient == 0.5
     assert demo.llama_cpp.temperature == 0
 
 

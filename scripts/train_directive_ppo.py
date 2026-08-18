@@ -1,4 +1,4 @@
-"""Train and freeze the isolated directive MaskablePPO prototype."""
+"""Train and freeze a versioned isolated directive PPO prototype."""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("results/demo/directive-ppo-v1"),
+        default=None,
         help="Directory for the ignored checkpoint and small manifest.",
     )
     return parser.parse_args()
@@ -44,7 +44,8 @@ def main() -> None:
         _repository_path(root, config.vocabulary_path)
     )
     registry = build_directive_registry(vocabulary)
-    output_directory = _repository_path(root, args.output)
+    default_output = Path(f"results/demo/directive-ppo-v{config.schema_version}")
+    output_directory = _repository_path(root, args.output or default_output)
     manifest = train_directive_ppo(
         config,
         vocabulary,
@@ -54,7 +55,10 @@ def main() -> None:
     manifest_path = output_directory / "directive-ppo-manifest.json"
     write_json_atomic(manifest_path, manifest)
     print(json.dumps(manifest.model_dump(mode="json"), indent=2, sort_keys=True))
-    print(f"checkpoint: {output_directory / 'directive-ppo-v1.zip'}")
+    checkpoint_name = (
+        "directive-ppo-v1.zip" if config.schema_version == 1 else "directive-ppo-v2.pt"
+    )
+    print(f"checkpoint: {output_directory / checkpoint_name}")
     print(f"manifest: {manifest_path}")
 
 

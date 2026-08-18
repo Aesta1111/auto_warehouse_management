@@ -10,7 +10,7 @@ The main research project remains in the compatibility-check phase. Local
 simulator replay, rendering, MaskablePPO, and a tiny Gemma 4 projector/LoRA
 optimizer step are verified. Pickled simulator snapshots were rejected in favor
 of exact seed-plus-action replay. A separate, unscored directive-demo prototype
-has completed its directive-semantics probe and Phase 3 directive PPO gate; it
+has completed its directive-semantics probe and Phase 3/3.5 directive PPO gates; it
 does not advance the main research phases or validate the hybrid hypothesis.
 The remaining Phase 1 gate is the prepared Linux/A40 cloud run for pathfinder
 equivalence, real 4-bit weights, memory, latency, and cost. The main training
@@ -88,13 +88,16 @@ Train the isolated directive PPO policy with the committed prototype seeds:
 
 ```powershell
 uv run python scripts/train_directive_ppo.py --config configs/demo/directive-ppo-v1.yaml
+uv run python scripts/train_directive_ppo.py --config configs/demo/directive-ppo-v2.yaml
 ```
 
 The command writes a small manifest and an ignored checkpoint under
-`results/demo/directive-ppo-v1/`. The manifest records vocabulary and behavior
-digests, seed partitions, package versions, validation metrics, and the
-checkpoint SHA-256. Gemma/actioner phases are intentionally not included in
-this Phase 3 command.
+`results/demo/directive-ppo-v1/` or `results/demo/directive-ppo-v2/`. Version 1
+preserves the SB3 reference; version 2 uses the repository-owned model, buffer,
+GAE, loss, collector, and explicit Lightning Fabric loop required by Phase 3.5.
+Each manifest records vocabulary and behavior digests, seed partitions, package
+versions, validation metrics, and the checkpoint SHA-256. Gemma/actioner phases
+are intentionally not included in either command.
 
 The deferred RunPod command is `bash scripts/run_phase1_cloud.sh` from an exact
 checked-out project commit.

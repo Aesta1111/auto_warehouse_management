@@ -258,7 +258,7 @@ class DirectivePpoValidationSummary(DemoModel):
 class DirectivePpoManifest(DemoModel):
     """Small provenance record for a frozen directive PPO checkpoint."""
 
-    schema_version: Literal[1]
+    schema_version: Literal[1, 2]
     environment_id: str
     vocabulary_sha256: str
     behavior_sha256: str
@@ -269,6 +269,13 @@ class DirectivePpoManifest(DemoModel):
     hyperparameters: dict[str, JsonValue]
     validation: DirectivePpoValidationSummary
     package_versions: dict[str, str]
+    backend: Literal["sb3-maskable-ppo", "lightning-fabric"] | None = None
+    model_implementation_version: str | None = None
+    buffer_schema_version: str | None = None
+    gae_version: str | None = None
+    loss_version: str | None = None
+    architecture_sha256: str | None = None
+    implementation_sha256: str | None = None
     git_commit: str
     dirty_worktree: bool
     created_at_utc: datetime
@@ -278,9 +285,17 @@ class DirectivePpoManifest(DemoModel):
     def validate_manifest_text(cls, value: str, info: Any) -> str:
         return _nonblank(value, info.field_name)
 
-    @field_validator("vocabulary_sha256", "behavior_sha256", "checkpoint_sha256")
+    @field_validator(
+        "vocabulary_sha256",
+        "behavior_sha256",
+        "checkpoint_sha256",
+        "architecture_sha256",
+        "implementation_sha256",
+    )
     @classmethod
     def validate_manifest_digests(cls, value: str, info: Any) -> str:
+        if value is None:
+            return value
         return _digest(value, info.field_name)
 
     @field_validator("train_seeds", "validation_seeds")
@@ -303,6 +318,21 @@ class DirectivePpoManifest(DemoModel):
             raise ValueError("train_seeds and validation_seeds must be disjoint")
         if self.validation.seeds != self.validation_seeds:
             raise ValueError("validation summary seeds must match validation_seeds")
+        provenance = (
+            self.backend,
+            self.model_implementation_version,
+            self.buffer_schema_version,
+            self.gae_version,
+            self.loss_version,
+            self.architecture_sha256,
+            self.implementation_sha256,
+        )
+        if self.schema_version == 2 and any(value is None for value in provenance):
+            raise ValueError(
+                "schema-v2 PPO manifests require complete implementation provenance"
+            )
+        if self.schema_version == 2 and self.backend != "lightning-fabric":
+            raise ValueError("schema-v2 PPO manifests require lightning-fabric")
         return self
 
 
@@ -336,9 +366,9 @@ class DirectiveProbeConfig(DemoModel):
 
 
 class DirectivePpoConfig(DemoModel):
-    """Configuration for the later directive MaskablePPO phase."""
+    """Configuration shared by the preserved v1 and repository-owned v2 PPO."""
 
-    schema_version: Literal[1]
+    schema_version: Literal[1, 2]
     environment_id: str
     vocabulary_path: Path
     train_seeds: tuple[int, ...]
@@ -354,6 +384,15 @@ class DirectivePpoConfig(DemoModel):
     gae_lambda: float = 0.95
     clip_range: float = 0.2
     entropy_coefficient: float = 0.01
+    value_coefficient: PositiveFloat | None = None
+    max_grad_norm: PositiveFloat | None = None
+    normalize_advantage: bool | None = None
+    target_kl: PositiveFloat | None = None
+    backend: Literal["sb3-maskable-ppo", "lightning-fabric"] | None = None
+    model_implementation_version: str | None = None
+    buffer_schema_version: str | None = None
+    gae_version: str | None = None
+    loss_version: str | None = None
 
     @field_validator("environment_id")
     @classmethod
@@ -370,6 +409,22 @@ class DirectivePpoConfig(DemoModel):
         overlap = sorted(set(self.train_seeds).intersection(self.validation_seeds))
         if overlap:
             raise ValueError(f"train_seeds and validation_seeds overlap: {overlap}")
+        provenance = (
+            self.value_coefficient,
+            self.max_grad_norm,
+            self.normalize_advantage,
+            self.backend,
+            self.model_implementation_version,
+            self.buffer_schema_version,
+            self.gae_version,
+            self.loss_version,
+        )
+        if self.schema_version == 2 and any(value is None for value in provenance):
+            raise ValueError(
+                "schema-v2 PPO configs require optimizer and implementation fields"
+            )
+        if self.schema_version == 2 and self.backend != "lightning-fabric":
+            raise ValueError("schema-v2 PPO configs require lightning-fabric")
         return self
 
 

@@ -26,11 +26,30 @@ from warehouse_ai.demo.models import (
     DirectivePrediction,
     DirectiveVocabulary,
 )
+from warehouse_ai.demo.ppo_model import (
+    DirectivePpoModule,
+    architecture_digest,
+    implementation_digest,
+)
 from warehouse_ai.demo.sb3 import DirectiveSb3Env
 
 
 _VALIDATION_INTERVAL = 5_000
 _POLICY_NET_ARCH = {"pi": [64], "vf": [64]}
+
+
+def _numeric_hyperparameter(values: dict[str, Any], name: str) -> float:
+    value = values.get(name)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"manifest hyperparameter {name!r} must be numeric")
+    return float(value)
+
+
+def _boolean_hyperparameter(values: dict[str, Any], name: str) -> bool:
+    value = values.get(name)
+    if not isinstance(value, bool):
+        raise ValueError(f"manifest hyperparameter {name!r} must be boolean")
+    return value
 
 
 def _repository_root() -> Path:
@@ -52,23 +71,38 @@ def _validate_mask(
 
 
 class DirectivePpoPolicy:
-    """Frozen deterministic view of a trained directive MaskablePPO model."""
+    """Frozen deterministic facade over either preserved v1 or schema-v2 PPO."""
 
     def __init__(
         self,
-        model: MaskablePPO,
+        model: Any,
         vocabulary: DirectiveVocabulary,
         checkpoint_sha256: str,
     ) -> None:
-        if not isinstance(model.action_space, gym.spaces.Discrete):
-            raise TypeError("directive PPO must use a Discrete action space")
-        if int(model.action_space.n) != vocabulary.size:
-            raise ValueError("PPO action space size does not match the vocabulary")
+        if isinstance(model, MaskablePPO):
+            if not isinstance(model.action_space, gym.spaces.Discrete):
+                raise TypeError("directive PPO must use a Discrete action space")
+            if int(model.action_space.n) != vocabulary.size:
+                raise ValueError("PPO action space size does not match the vocabulary")
+            self.backend = "sb3-maskable-ppo"
+        else:
+            if int(getattr(model, "directive_count", -1)) != vocabulary.size:
+                raise ValueError("PPO directive count does not match the vocabulary")
+            self.backend = "lightning-fabric"
         if len(checkpoint_sha256) != 64:
             raise ValueError("checkpoint_sha256 must be a SHA-256 digest")
-        self.model = model
+        self.model: Any = model
         self.vocabulary = vocabulary
         self.checkpoint_sha256 = checkpoint_sha256.lower()
+
+    @classmethod
+    def from_module(
+        cls,
+        module: DirectivePpoModule,
+        vocabulary: DirectiveVocabulary,
+        checkpoint_sha256: str,
+    ) -> DirectivePpoPolicy:
+        return cls(module, vocabulary, checkpoint_sha256)
 
     @classmethod
     def load(
@@ -89,8 +123,52 @@ class DirectivePpoPolicy:
                 "current directive behavior digest does not match the manifest"
             )
 
-        model = MaskablePPO.load(str(checkpoint), device="cpu")
-        return cls(model, vocabulary, actual_checkpoint_digest)
+        if manifest.schema_version == 1:
+            model = MaskablePPO.load(str(checkpoint), device="cpu")
+            return cls(model, vocabulary, actual_checkpoint_digest)
+
+        if manifest.backend != "lightning-fabric":
+            raise ValueError("schema-v2 PPO manifest has the wrong backend")
+        if manifest.implementation_sha256 != implementation_digest():
+            raise ValueError(
+                "current PPO implementation digest does not match manifest"
+            )
+        hyperparameters: dict[str, Any] = manifest.hyperparameters
+        observation_size = int(
+            _numeric_hyperparameter(hyperparameters, "observation_size")
+        )
+        directive_count = int(
+            _numeric_hyperparameter(hyperparameters, "directive_count")
+        )
+        hidden_size = int(_numeric_hyperparameter(hyperparameters, "hidden_size"))
+        expected_architecture = architecture_digest(
+            observation_size, directive_count, hidden_size
+        )
+        if manifest.architecture_sha256 != expected_architecture:
+            raise ValueError("current PPO architecture digest does not match manifest")
+        module = DirectivePpoModule(
+            observation_size=observation_size,
+            directive_count=directive_count,
+            hidden_size=hidden_size,
+            learning_rate=_numeric_hyperparameter(hyperparameters, "learning_rate"),
+            clip_range=_numeric_hyperparameter(hyperparameters, "clip_range"),
+            entropy_coefficient=_numeric_hyperparameter(
+                hyperparameters, "entropy_coefficient"
+            ),
+            value_coefficient=_numeric_hyperparameter(
+                hyperparameters, "value_coefficient"
+            ),
+            normalize_advantage=_boolean_hyperparameter(
+                hyperparameters, "normalize_advantage"
+            ),
+        )
+        payload = torch.load(checkpoint, map_location="cpu", weights_only=False)
+        state_dict = payload.get("model") if isinstance(payload, dict) else None
+        if not isinstance(state_dict, dict):
+            raise ValueError("schema-v2 PPO checkpoint has no model state dictionary")
+        module.load_state_dict(state_dict, strict=True)
+        module.eval()
+        return cls.from_module(module, vocabulary, actual_checkpoint_digest)
 
     def predict(
         self,
@@ -102,21 +180,39 @@ class DirectivePpoPolicy:
         start = time.perf_counter()
         observation = context.observation.encode()
         with torch.inference_mode():
-            observation_tensor, _ = self.model.policy.obs_to_tensor(observation)
-            distribution = self.model.policy.get_distribution(
-                observation_tensor, action_masks=mask
-            )
-            categorical = getattr(distribution, "distribution", None)
-            probabilities_tensor = getattr(categorical, "probs", None)
-            if probabilities_tensor is None:
-                raise RuntimeError(
-                    "directive PPO did not return a categorical distribution"
+            if self.backend == "sb3-maskable-ppo":
+                observation_tensor, _ = self.model.policy.obs_to_tensor(observation)
+                distribution = self.model.policy.get_distribution(
+                    observation_tensor, action_masks=mask
                 )
-            probabilities = (
-                probabilities_tensor[0].detach().cpu().numpy().astype(np.float64)
-            )
-            value_tensor = self.model.policy.predict_values(observation_tensor)
-            value_estimate = float(value_tensor.reshape(-1)[0].item())
+                categorical = getattr(distribution, "distribution", None)
+                probabilities_tensor = getattr(categorical, "probs", None)
+                if probabilities_tensor is None:
+                    raise RuntimeError(
+                        "directive PPO did not return a categorical distribution"
+                    )
+                probabilities = (
+                    probabilities_tensor[0].detach().cpu().numpy().astype(np.float64)
+                )
+                value_tensor = self.model.policy.predict_values(observation_tensor)
+                value_estimate = float(value_tensor.reshape(-1)[0].item())
+            else:
+                device = next(self.model.parameters()).device
+                observation_tensor = torch.as_tensor(
+                    observation, dtype=torch.float32, device=device
+                ).unsqueeze(0)
+                mask_tensor = torch.as_tensor(
+                    mask, dtype=torch.bool, device=device
+                ).unsqueeze(0)
+                output = self.model(observation_tensor, mask_tensor)
+                probabilities = (
+                    torch.softmax(output.policy_logits, dim=-1)[0]
+                    .detach()
+                    .cpu()
+                    .numpy()
+                    .astype(np.float64)
+                )
+                value_estimate = float(output.values.item())
 
         probabilities = np.where(mask, probabilities, 0.0)
         probability_total = float(probabilities.sum())
@@ -251,7 +347,7 @@ def _save_model(model: MaskablePPO, base_path: Path) -> Path:
     return checkpoint
 
 
-def _is_better(
+def is_better_validation(
     candidate: DirectivePpoValidationSummary,
     incumbent: DirectivePpoValidationSummary | None,
 ) -> bool:
@@ -263,7 +359,7 @@ def _is_better(
     )
 
 
-def train_directive_ppo(
+def _train_directive_ppo_v1(
     config: DirectivePpoConfig,
     vocabulary: DirectiveVocabulary,
     registry: DirectiveRegistry,
@@ -321,7 +417,7 @@ def train_directive_ppo(
                 candidate_summary = evaluate_directive_ppo(
                     candidate_policy, config, vocabulary, registry
                 )
-                if _is_better(candidate_summary, best_summary):
+                if is_better_validation(candidate_summary, best_summary):
                     _save_model(model, best_checkpoint_base)
                     best_checkpoint = best_checkpoint_base.with_suffix(".zip")
                     best_summary = candidate_summary
@@ -368,3 +464,60 @@ def train_directive_ppo(
         dirty_worktree=dirty_worktree,
         created_at_utc=datetime.now(timezone.utc),
     )
+
+
+def train_directive_ppo(
+    config: DirectivePpoConfig,
+    vocabulary: DirectiveVocabulary,
+    registry: DirectiveRegistry,
+    output_directory: Path,
+) -> DirectivePpoManifest:
+    """Dispatch the preserved schema-v1 reference or repository-owned v2 path."""
+    if config.schema_version == 1:
+        return _train_directive_ppo_v1(config, vocabulary, registry, output_directory)
+
+    from warehouse_ai.demo.ppo_training import DirectivePpoTrainingLoop
+
+    if registry.vocabulary.digest() != vocabulary.digest():
+        raise ValueError("registry vocabulary does not match training vocabulary")
+    assert config.value_coefficient is not None
+    assert config.normalize_advantage is not None
+    torch.manual_seed(config.algorithm_seed)
+    training_environment = DirectiveSb3Env(
+        config.environment_id,
+        vocabulary,
+        registry,
+        config.train_seeds,
+        config.episode_steps,
+    )
+    validation_environment = DirectiveSb3Env(
+        config.environment_id,
+        vocabulary,
+        registry,
+        config.validation_seeds,
+        config.episode_steps,
+    )
+    observation_shape = training_environment.observation_space.shape
+    if observation_shape is None:
+        raise RuntimeError("training environment has no fixed observation shape")
+    module = DirectivePpoModule(
+        observation_size=int(observation_shape[0]),
+        directive_count=vocabulary.size,
+        hidden_size=64,
+        learning_rate=config.learning_rate,
+        clip_range=config.clip_range,
+        entropy_coefficient=config.entropy_coefficient,
+        value_coefficient=config.value_coefficient,
+        normalize_advantage=config.normalize_advantage,
+    )
+    try:
+        return DirectivePpoTrainingLoop().fit(
+            module,
+            config,
+            training_environment,
+            validation_environment,
+            output_directory,
+        )
+    finally:
+        training_environment.close()
+        validation_environment.close()
