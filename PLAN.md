@@ -69,9 +69,11 @@ semantics that TA-RWARE trajectories do not support.
 
 ### 2.2 PPO training executor
 
-Train a MaskablePPO policy whose discrete action space is the frozen directive
+Train a masked PPO policy whose discrete action space is the frozen directive
 vocabulary. PPO selects `directive_id`; it does not directly select TA-RWARE
-destination IDs.
+destination IDs. Phase 3 establishes this behavior with SB3-Contrib
+`MaskablePPO`; Phase 3.5 preserves the MDP while moving the PPO implementation
+into project-owned PyTorch and Lightning components.
 
 PPO training must not call Gemma at every environment step. Instead, each
 directive has a deterministic training executor that converts the directive and
@@ -83,7 +85,7 @@ directive is not applicable, mask it before PPO samples an action.
 The training environment therefore behaves as:
 
 ```text
-observation -> MaskablePPO directive -> deterministic directive executor
+observation -> masked PPO directive -> deterministic directive executor
             -> validated JointAction -> TA-RWARE reward and next observation
 ```
 
@@ -103,7 +105,7 @@ At each decision opportunity:
 1. Read the canonical `WarehouseObservation` and current `ActionMask` from the
    existing TA-RWARE wrapper.
 2. Encode the observation using the existing deterministic numeric contract.
-3. Run the frozen MaskablePPO directive policy with the current directive mask
+3. Run the frozen PPO directive policy with the current directive mask
    and choose its deterministic `directive_id`.
 4. Resolve the ID to its English command and description.
 5. Serialize the directive, compact visible state, action-mask facts, and exact
@@ -238,6 +240,14 @@ hyperparameters, validation metrics, Git state, dependency versions, and
 checkpoint digest. This checkpoint is a prototype artifact and must not become
 the PPO checkpoint used by the main scientific experiment.
 
+Phase 3 establishes the verified SB3-Contrib reference implementation. Before
+actioner work begins, Phase 3.5 replaces SB3's internally owned policy, rollout
+buffer, GAE calculation, PPO loss, and optimizer loop with explicit
+project-owned components. The refactor keeps the environment, directive
+semantics, seed partitions, validation rule, and public deterministic-prediction
+contract fixed. Preserve the Phase 3 checkpoint and manifest as historical
+reference artifacts; do not convert or overwrite them.
+
 ### 5.2 Demo runner
 
 Add one argparse runner with a strict versioned configuration. It should:
@@ -292,14 +302,19 @@ Create the following prototype-only modules:
 configs/demo/
 |-- directives-v1.yaml
 |-- directive-probe-v1.yaml
-|-- directive-ppo-v1.yaml
+|-- directive-ppo-v1.yaml       # Phase 3 SB3 reference
+|-- directive-ppo-v2.yaml       # Phase 3.5 Lightning refactor
 `-- directive-demo-v1.yaml
 src/warehouse_ai/demo/
 |-- __init__.py        # Public exports added only when each phase passes
 |-- models.py          # Phase-grouped immutable records and configuration
 |-- directives.py      # Phase 2: directive semantics and executors
 |-- sb3.py             # Phase 3: directive-to-TA-RWARE SB3 facade
-|-- ppo.py             # Phase 3: PPO training and frozen inference
+|-- ppo.py             # Stable PPO training and frozen-inference facade
+|-- ppo_model.py       # Phase 3.5: Lightning actor-critic and train step
+|-- ppo_buffer.py      # Phase 3.5: rollout storage and minibatch views
+|-- ppo_math.py        # Phase 3.5: pure GAE and PPO-loss calculations
+|-- ppo_training.py    # Phase 3.5: collection and update orchestration
 |-- prompting.py       # Phase 4: state prompt and JSON schema
 |-- actioner.py        # Phases 4-5: protocol, then real llama.cpp client
 |-- controllers.py     # Phase 4: executor and actioner controllers
@@ -321,6 +336,11 @@ their exact resolved versions. `httpx` communicates with the local `llama.cpp`
 server and `PyYAML.safe_load()` supplies dictionaries to Pydantic. Do not add an
 OpenAI SDK because this prototype only needs one local HTTP endpoint.
 
+Phase 3.5 adds a bounded `lightning` development dependency. Keep
+SB3-Contrib pinned while the reference checkpoint and parity tests remain
+auditable, but the Phase 3.5 training path must not instantiate
+`MaskablePPO` or use its rollout buffer, GAE, loss, or optimizer loop.
+
 Class ownership is intentionally grouped by implementation phase:
 
 | Phase | Class group | Primary modules |
@@ -328,6 +348,7 @@ Class ownership is intentionally grouped by implementation phase:
 | 1 | Shared records, YAML configs, hashing, and artifact primitives | `models.py`, `artifacts.py` |
 | 2 | Directive behavior protocol, registry, concrete executors, and semantic errors | `directives.py` |
 | 3 | Directive SB3 facade, PPO policy facade, training, validation, and checkpoint manifest | `sb3.py`, `ppo.py`, `models.py` |
+| 3.5 | Repository-owned actor-critic, rollout buffer, GAE, PPO loss, Lightning update loop, and new checkpoint | `ppo_model.py`, `ppo_buffer.py`, `ppo_math.py`, `ppo_training.py`, `ppo.py`, `models.py` |
 | 4 | Actioner-neutral request/plan contracts, prompt builder, fake-client path, and controllers | `models.py`, `prompting.py`, `actioner.py`, `controllers.py` |
 | 5 | Real `llama.cpp` health, inference, preflight, and model-selection records | `actioner.py`, `models.py` |
 | 6 | Episode records, matched runner, JSONL output, summaries, and documentation handoff | `evaluation.py`, `artifacts.py`, `models.py` |
@@ -781,7 +802,278 @@ behavior digests, package versions, seeds, hyperparameters, checkpoint SHA-256,
 validation summary, Git commit, dirty flag, and UTC timestamp. Loading fails if
 the current vocabulary or behavior digest differs.
 
-### 7.7 Prompt construction (`prompting.py`)
+### 7.7 PPO model and buffer ownership refactor (Phase 3.5)
+
+Phase 3.5 is a controlled breaking refactor of the Phase 3 PPO implementation.
+It does not change the directive MDP. `DirectiveSb3Env`, observation encoding,
+directive masks, deterministic executors, rewards, episode limits, training and
+validation seeds, checkpoint-selection rule, and validation metrics remain
+fixed. Only ownership of the PPO algorithm moves from SB3-Contrib into explicit
+project classes.
+
+The refactor must create these modules and responsibilities:
+
+| Module | Required ownership |
+| --- | --- |
+| `ppo_model.py` | Actor/value networks, masked distribution, action evaluation, PPO loss integration, optimizer configuration, and train metrics |
+| `ppo_buffer.py` | Fixed-size rollout storage, lifecycle validation, finalized minibatch views, and deterministic shuffling |
+| `ppo_math.py` | Pure GAE and PPO-loss calculations with no simulator, model, logging, or filesystem dependencies |
+| `ppo_training.py` | Environment collection, rollout/update alternation, validation scheduling, checkpoint selection, and Lightning/Fabric orchestration |
+| `ppo.py` | Stable `DirectivePpoPolicy`, `train_directive_ppo()`, and `evaluate_directive_ppo()` public facade |
+
+Tensor-bearing training records are ordinary frozen dataclasses or named
+tuples, not Pydantic models. Pydantic remains reserved for serialized configs,
+manifests, predictions, and validation summaries.
+
+```python
+@dataclass(frozen=True)
+class PpoForwardOutput:
+    policy_logits: Tensor
+    values: Tensor
+    policy_latent: Tensor
+    value_latent: Tensor
+
+
+@dataclass(frozen=True)
+class PpoActionSample:
+    actions: Tensor
+    log_probabilities: Tensor
+    values: Tensor
+
+
+@dataclass(frozen=True)
+class PpoBatch:
+    observations: Tensor
+    action_masks: Tensor
+    actions: Tensor
+    old_log_probabilities: Tensor
+    old_values: Tensor
+    advantages: Tensor
+    returns: Tensor
+
+
+@dataclass(frozen=True)
+class PpoLossTerms:
+    total: Tensor
+    policy: Tensor
+    value: Tensor
+    entropy: Tensor
+    approximate_kl: Tensor
+    clip_fraction: Tensor
+```
+
+The trainable model is one Lightning module:
+
+```python
+class DirectivePpoModule(pl.LightningModule):
+    def __init__(
+        self,
+        observation_size: int,
+        directive_count: int,
+        hidden_size: int,
+        learning_rate: float,
+        clip_range: float,
+        entropy_coefficient: float,
+        value_coefficient: float,
+        normalize_advantage: bool,
+    ) -> None: ...
+
+    def forward(
+        self,
+        observations: Tensor,
+        action_masks: Tensor,
+    ) -> PpoForwardOutput: ...
+
+    def act(
+        self,
+        observations: Tensor,
+        action_masks: Tensor,
+        *,
+        deterministic: bool,
+        generator: torch.Generator | None = None,
+    ) -> PpoActionSample: ...
+
+    def evaluate_actions(self, batch: PpoBatch) -> tuple[Tensor, Tensor, Tensor]: ...
+    def compute_loss(self, batch: PpoBatch) -> PpoLossTerms: ...
+    def training_step(self, batch: PpoBatch, batch_idx: int) -> Tensor: ...
+    def configure_optimizers(self) -> Optimizer: ...
+```
+
+Use separate 64-unit `tanh` policy and value paths to preserve the declared
+Phase 3 architecture. `forward()` must expose the policy latent explicitly even
+though this directive demo does not send it to Gemma. Invalid directive logits
+are masked before constructing `torch.distributions.Categorical`; masked
+directives must have exactly zero reported probability. `act(deterministic=True)`
+uses lowest-ID argmax tie-breaking, while rollout collection samples from the
+same masked probabilities through `torch.multinomial()` with the supplied
+seeded PyTorch generator.
+
+`DirectivePpoModule.compute_loss()` is the authoritative training calculation.
+It delegates the pure arithmetic to `compute_ppo_loss()` and owns coefficients,
+logging names, and optimizer configuration. `training_step()` remains a thin
+Lightning-compatible call to `compute_loss()`; neither method may collect
+rollouts or access an environment.
+
+```python
+def compute_gae(
+    rewards: Tensor,
+    values: Tensor,
+    next_values: Tensor,
+    bootstrap_masks: Tensor,
+    trace_masks: Tensor,
+    *,
+    gamma: float,
+    gae_lambda: float,
+) -> tuple[Tensor, Tensor]: ...
+
+
+def compute_ppo_loss(
+    batch: PpoBatch,
+    new_log_probabilities: Tensor,
+    new_values: Tensor,
+    entropy: Tensor,
+    *,
+    clip_range: float,
+    entropy_coefficient: float,
+    value_coefficient: float,
+    normalize_advantage: bool,
+) -> PpoLossTerms: ...
+```
+
+Use the clipped surrogate policy loss, unclipped MSE value loss, and positive
+mean categorical entropy. Define `total` as policy loss plus the weighted value
+loss minus the weighted entropy. Normalize advantages within each minibatch when
+configured, use the Phase 3 `1e-8` stability epsilon, and compute reverse
+approximate KL and clip fraction for logging and optional early stopping. Do not
+introduce value clipping or reward normalization during this refactor.
+
+GAE must distinguish simulator termination, time-limit truncation, and an
+ordinary rollout-buffer boundary. A terminated transition has no value
+bootstrap and stops the recursive trace. A truncated transition bootstraps from
+the returned terminal observation but stops the trace before the reset state.
+An unfinished transition at the end of a rollout bootstraps and continues its
+trace normally. Encode those rules explicitly through `bootstrap_masks` and
+`trace_masks`; do not collapse them into one ambiguous `done` flag.
+
+The rollout buffer owns storage only:
+
+```python
+class DirectiveRolloutBuffer:
+    def __init__(
+        self,
+        capacity: int,
+        observation_shape: tuple[int, ...],
+        directive_count: int,
+    ) -> None: ...
+
+    def add(
+        self,
+        *,
+        observation: NDArray[np.float32],
+        action_mask: NDArray[np.bool_],
+        action: int,
+        reward: float,
+        terminated: bool,
+        truncated: bool,
+        old_value: float,
+        next_value: float,
+        old_log_probability: float,
+    ) -> None: ...
+
+    def finalize(self, *, gamma: float, gae_lambda: float) -> None: ...
+    def iter_minibatches(
+        self,
+        batch_size: int,
+        *,
+        generator: torch.Generator,
+    ) -> Iterator[PpoBatch]: ...
+    def reset(self) -> None: ...
+```
+
+Preallocate observations as `float32`, masks as `bool`, actions as `int64`, and
+scalar training fields as `float32`. Reject overflow, partial finalization,
+minibatch access before finalization, and mutation after finalization. Store the
+exact action mask used to produce each old log probability and reuse it when
+evaluating the action during PPO updates. The buffer must not own an environment,
+model, optimizer, logger, or checkpoint path.
+
+Collection and optimization remain separate classes:
+
+```python
+class DirectiveRolloutCollector:
+    def collect(
+        self,
+        module: DirectivePpoModule,
+        environment: DirectiveSb3Env,
+        buffer: DirectiveRolloutBuffer,
+        *,
+        rollout_steps: int,
+        generator: torch.Generator,
+    ) -> None: ...
+
+
+class DirectivePpoTrainingLoop:
+    def fit(
+        self,
+        module: DirectivePpoModule,
+        config: DirectivePpoConfig,
+        training_environment: DirectiveSb3Env,
+        validation_environment: DirectiveSb3Env,
+        output_directory: Path,
+    ) -> DirectivePpoManifest: ...
+```
+
+`DirectiveRolloutCollector` runs inference mode, samples only applicable
+directives, records the returned next-state value before resetting a terminated
+or truncated episode, and fills exactly one buffer. It never performs an
+optimizer step. `DirectivePpoTrainingLoop` alternates one finalized rollout
+with `n_epochs` of seeded minibatches, clips gradients, optionally stops an
+update on a declared target KL, validates every 5,000 environment steps, and
+selects checkpoints by the unchanged Phase 3 rule.
+
+Use one long-lived model and optimizer for the entire run. Standard Lightning
+`Trainer.fit()` assumes a comparatively stable dataset and must not be forced
+to own simulator interaction through a DataLoader or private loop API. Use
+Lightning Fabric for device placement, backward, gradient clipping, logging,
+and checkpoint support around the explicit on-policy loop. The
+`DirectivePpoModule` still owns forward, action evaluation, loss, metrics, and
+optimizer configuration. Record the exact Lightning and Fabric versions in the
+manifest.
+
+Seed the environment, NumPy, PyTorch, minibatch generator, and rollout-action
+generator from explicit config-derived values. Checkpoints are written only at
+completed PPO-update boundaries, so no partially filled rollout buffer needs to
+be serialized or resumed.
+
+Refactor `DirectivePpoPolicy` to wrap a frozen `DirectivePpoModule` while
+preserving its existing `predict(context, directive_mask)` behavior and
+`DirectivePrediction` output. The new loader verifies the checkpoint,
+vocabulary, behavior, architecture, and implementation digests before loading
+the state dictionary on CPU.
+
+Advance `DirectivePpoConfig` and `DirectivePpoManifest` to schema version 2 and
+write `configs/demo/directive-ppo-v2.yaml`. Add explicit fields for
+`value_coefficient`, `max_grad_norm`, `normalize_advantage`, optional
+`target_kl`, model implementation version, buffer schema version, GAE version,
+loss version, and backend identity. Preserve the Phase 3 v1 config, SB3 zip,
+manifest, and research-log entry unchanged. There is no checkpoint conversion:
+Phase 3.5 retrains from the same declared seeds and budget and produces a new
+checkpoint and manifest.
+
+Exact weight or probability equality with SB3 is not expected because
+initialization, minibatch order, and optimizer details can differ. Compare the
+two implementations descriptively on the same prototype validation seeds and
+record directive counts, completed tasks, returns, entropy, and invalid-action
+behavior. The Phase 3.5 gate is correctness and reproducibility, not making the
+new implementation outperform the SB3 reference.
+
+Time-box the implementation to five working days, with up to two additional
+days for deterministic reload and truncation fixes. If the explicit loop cannot
+preserve optimizer state, masking, GAE semantics, and reproducible checkpoint
+reload without private Lightning APIs, record the failed investigation and
+stop before Phase 4 rather than hiding the problem behind the old SB3 model.
+
+### 7.8 Prompt construction (`prompting.py`)
 
 ```python
 class ChatMessage(DemoModel):
@@ -812,7 +1104,7 @@ keys, and gives `destinations` `minItems == maxItems == len(agents)`. Integer
 bounds are `0` through `action_mask.destination_count - 1`. The prompt explains
 which vector position belongs to each agent and lists each row's legal IDs.
 
-### 7.8 Local Gemma actioner (`actioner.py`)
+### 7.9 Local Gemma actioner (`actioner.py`)
 
 ```python
 PlanT_co = TypeVar("PlanT_co", covariant=True)
@@ -891,7 +1183,7 @@ The generic `Actioner[PlanT]` is the only future-facing seam. A future sequence
 implementation must introduce its own plan model, schema, validation, and
 execution policy; it must not change `DirectivePrediction`.
 
-### 7.9 Controllers (`controllers.py`)
+### 7.10 Controllers (`controllers.py`)
 
 ```python
 class DemoController(Protocol):
@@ -934,7 +1226,7 @@ failure; do not terminate the live demo.
 Neither controller calls `wrapper.project()`. The returned `DemoDecision.action`
 is the exact action subsequently sent to `wrapper.step()`.
 
-### 7.10 Episode runner and artifacts (`evaluation.py`, `artifacts.py`)
+### 7.11 Episode runner and artifacts (`evaluation.py`, `artifacts.py`)
 
 ```python
 class DirectivePpoValidationSummary(DemoModel):
@@ -1037,13 +1329,14 @@ Write artifacts under
 timestamp, and short Git commit. Small summaries may be committed; raw JSONL and
 checkpoints remain ignored.
 
-### 7.11 Script contracts
+### 7.12 Script contracts
 
 Each script returns exit code zero only when its stated artifact is complete:
 
 ```text
 python scripts/probe_directives.py --config configs/demo/directive-probe-v1.yaml
 python scripts/train_directive_ppo.py --config configs/demo/directive-ppo-v1.yaml
+python scripts/train_directive_ppo.py --config configs/demo/directive-ppo-v2.yaml
 python scripts/probe_gemma_actioner.py --config configs/demo/directive-demo-v1.yaml
 python scripts/run_directive_demo.py --config configs/demo/directive-demo-v1.yaml
 ```
@@ -1052,13 +1345,15 @@ python scripts/run_directive_demo.py --config configs/demo/directive-demo-v1.yam
   across representative seeded trajectories and writes coverage only; it does
   not train.
 - `train_directive_ppo.py` validates the vocabulary spike output, trains,
-  evaluates, and writes a checkpoint manifest.
+  evaluates, and writes a checkpoint manifest. The v1 config reproduces the
+  Phase 3 SB3 reference; the v2 config is the required Phase 3.5
+  Lightning-backed implementation used by later phases.
 - `probe_gemma_actioner.py` performs E4B preflight and directive sensitivity;
   it exits with a distinct documented code indicating that E2B should be used.
 - `run_directive_demo.py` requires a passing actioner preflight artifact for the
   selected model, runs both matched episodes, and prints artifact locations.
 
-### 7.12 Implementation order and gates
+### 7.13 Implementation order and gates
 
 Implement the following class groups in order. Each phase should be one focused
 change that leaves the repository runnable and tested.
@@ -1154,6 +1449,59 @@ Deliverables:
 Gate: `train_directive_ppo.py` creates a verified checkpoint and passing
 validation manifest from the committed config.
 
+#### Phase 3.5: Repository-owned PPO model, buffer, and Lightning loop
+
+Treat this as the one authorized breaking change to the completed Phase 3 PPO
+implementation. Keep Phase 3's environment and prediction contracts stable,
+but replace the `MaskablePPO` training core with the classes in Section 7.7.
+Preserve the Phase 3 checkpoint, manifest, config, and research log as the SB3
+reference; do not rewrite their history.
+
+Create:
+
+- In `ppo_model.py`: `PpoForwardOutput`, `PpoActionSample`, `PpoLossTerms`, and
+  `DirectivePpoModule`.
+- In `ppo_buffer.py`: `PpoBatch` and `DirectiveRolloutBuffer`.
+- In `ppo_math.py`: `compute_gae()` and `compute_ppo_loss()`.
+- In `ppo_training.py`: `DirectiveRolloutCollector` and
+  `DirectivePpoTrainingLoop`.
+- In `models.py`: schema-v2 `DirectivePpoConfig` and
+  `DirectivePpoManifest` fields for implementation provenance.
+- In `ppo.py`: the refactored `DirectivePpoPolicy` adapter and stable public
+  training/evaluation functions.
+- `configs/demo/directive-ppo-v2.yaml` using the same seeds, episode length,
+  training budget, architecture, and checkpoint-selection rule as Phase 3.
+
+Phase 3.5 may depend on Phases 1-3, PyTorch, and the bounded Lightning package.
+It may use SB3 only in parity tests and reference-result loading. Production
+Phase 3.5 model, collection, GAE, loss, and optimization code must not import or
+instantiate `MaskablePPO` or `MaskableRolloutBuffer`.
+
+Deliverables:
+
+- Hand-calculated GAE tests pass for termination, truncation, and unfinished
+  rollout boundaries.
+- Hand-calculated PPO-loss tests cover clipping, value loss, entropy,
+  approximate KL, and advantage normalization.
+- Buffer lifecycle, dtypes, shapes, mask preservation, seeded shuffling, and
+  minibatch coverage are deterministic and fully tested.
+- The model assigns zero probability to masked directives, exposes its policy
+  latent, and produces valid stochastic training actions and deterministic
+  validation actions.
+- One short training smoke run proves that rollout collection and optimizer
+  state alternate without reset under the explicit Lightning/Fabric loop.
+- Full-budget training writes a schema-v2 checkpoint manifest and the unchanged
+  validation routine can load and evaluate it.
+- Reloading the new checkpoint reproduces deterministic directives,
+  probabilities, values, and validation summaries for fixed seeds.
+- A dated research-log entry compares the new run descriptively with the Phase
+  3 SB3 reference and records implementation cost or failed attempts.
+
+Gate: `train_directive_ppo.py` using `directive-ppo-v2.yaml` creates a
+digest-verified schema-v2 checkpoint, the focused and repository quality gates
+pass, and validation still selects at least two non-wait directives with zero
+inapplicable selections. Phase 4 must consume only this Phase 3.5 checkpoint.
+
 #### Phase 4: Actioner-neutral orchestration with a fake client
 
 Create:
@@ -1170,8 +1518,8 @@ Create:
 - In tests only: `FakeActioner`, implemented against the public `Actioner`
   protocol rather than added to production code.
 
-Phase 4 depends on Phases 1-3. Production Phase 4 code must not import `httpx`
-or assume a particular model server.
+Phase 4 depends on Phases 1-3.5. Production Phase 4 code must not import
+`httpx` or assume a particular model server.
 
 Deliverables:
 
@@ -1268,6 +1616,15 @@ schemas, digests, and behavior need only rerun affected tests.
   `TarwareSb3Env`.
 - PPO policy input, action distribution, and value shapes match the frozen
   observation and vocabulary.
+- Phase 3.5 masked logits give inapplicable directives zero probability, and
+  the model exposes stable policy- and value-latent shapes.
+- `compute_gae()` matches hand-calculated termination, truncation, and rollout-
+  boundary cases without leaking a reset state's value backward.
+- `compute_ppo_loss()` matches hand-calculated unclipped and clipped policy
+  terms, value loss, entropy, approximate KL, and clip fraction.
+- `DirectiveRolloutBuffer` rejects overflow and premature minibatch access,
+  preserves the exact action mask and old log probability for each transition,
+  and yields every finalized item once per seeded epoch.
 - Fixed PPO checkpoints, observations, and masks produce identical directive
   predictions.
 - Compact prompt serialization is deterministic and contains no hidden state.
@@ -1286,6 +1643,12 @@ schemas, digests, and behavior need only rerun affected tests.
 - Run the directive Gymnasium adapter through environment checks and a short
   multi-seed rollout.
 - Train MaskablePPO briefly and save/reload an identical directive prediction.
+- Run one Phase 3.5 collect/update cycle with the explicit buffer and
+  Lightning/Fabric loop, verify that optimizer state advances without reset,
+  and save/reload an identical deterministic prediction.
+- Evaluate the SB3 reference and schema-v2 checkpoints through the same
+  validation function and record descriptive differences without requiring
+  identical weights or scores.
 - Run a short TA-RWARE episode with a fake actioner returning valid actions.
 - Force malformed and delayed fake responses and verify the episode completes
   with logged deterministic-executor fallbacks.
@@ -1303,6 +1666,9 @@ The first prototype is complete when:
   rules.
 - A clean command trains or loads the directive PPO checkpoint and reproduces
   its manifest and validation summary.
+- Phase 3.5 owns the actor/value model, rollout buffer, GAE, PPO loss, rollout
+  collector, and optimization loop in separately tested modules; later demo
+  phases load only its schema-v2 checkpoint.
 - The selected PPO policy uses at least two non-wait directives on validation
   episodes and never submits an inapplicable directive.
 - E4B preflight passes or deterministically selects and records E2B fallback.

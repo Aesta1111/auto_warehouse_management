@@ -50,6 +50,8 @@ complete, and its seeds remain excluded from later scientific evaluation.
 - [x] Implement deterministic applicability, executors, and effect validation.
 - [x] Probe all committed seeds with the real TA-RWARE wrapper.
 - [x] Implement the separate directive PPO phase after this gate remains stable.
+- [ ] Complete Phase 3.5's repository-owned PPO model, rollout buffer, GAE,
+  loss, collector, and Lightning/Fabric training-loop refactor.
 
 Phase 2 of the prototype passed on 2026-08-13: 2,500 states checked across
 seeds 8000-8004 with zero uncovered states, executor failures, or effect
@@ -60,6 +62,11 @@ MaskablePPO run produced a digest-verified checkpoint and reproducible validatio
 summary on seeds 8200-8203. The selected policy used two non-wait directives,
 selected no inapplicable directives, and reproduced after checkpoint reload. See
 [the Phase 3 research log entry](docs/research-log/2026-08-16-directive-ppo.md).
+
+Phase 3.5 is the next prototype gate. It preserves the Phase 3 directive MDP,
+seeds, validation rule, and SB3 checkpoint as a reference while producing a
+separate schema-v2 checkpoint. Actioner work remains deferred until the new
+checkpoint passes deterministic reload and validation gates in `PLAN.md`.
 
 ## Phase 2: runnable project foundation
 
