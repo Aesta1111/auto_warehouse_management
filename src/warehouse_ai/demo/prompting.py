@@ -122,6 +122,23 @@ class GemmaPromptBuilder:
 
         sections.extend(
             (
+                "JOINT-ACTION SAFETY RULES",
+                (
+                    "A nonzero destination may be selected by at most one agent "
+                    "with the same role. If multiple same-role agents would "
+                    "choose the same nonzero destination, keep one assignment "
+                    "and use destination 0 or another legal destination for "
+                    "the others. In this layout positions 0, 1, and 2 are AGVs, "
+                    "so their nonzero destinations must be pairwise distinct; "
+                    "positions 3 and 4 are pickers, so their nonzero destinations "
+                    "must also be pairwise distinct. Different roles may share a "
+                    "destination."
+                ),
+            )
+        )
+
+        sections.extend(
+            (
                 "OUTPUT INSTRUCTIONS",
                 (
                     "Return exactly one JSON object with exactly the keys "

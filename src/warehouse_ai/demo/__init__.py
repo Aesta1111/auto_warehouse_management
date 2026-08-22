@@ -17,6 +17,7 @@ from warehouse_ai.demo.actioner import (
     ActionerSchemaError,
     ActionerTimeoutError,
     EmptyActionerResponseError,
+    LlamaCppActioner,
     StaleActionPlanError,
 )
 from warehouse_ai.demo.controllers import (
@@ -56,7 +57,9 @@ from warehouse_ai.demo.models import (
     DirectivePrediction,
     DirectiveVocabulary,
     GemmaActionResponse,
+    GemmaPreflightReport,
     LlamaCppConfig,
+    ModelHealth,
     SingleJointActionPlan,
     load_yaml_config,
 )
@@ -106,9 +109,12 @@ __all__ = [
     "DirectiveGemmaController",
     "EmptyActionerResponseError",
     "GemmaActionResponse",
+    "GemmaPreflightReport",
     "GemmaPromptBuilder",
     "InapplicableDirectiveError",
     "LlamaCppConfig",
+    "LlamaCppActioner",
+    "ModelHealth",
     "RepositionIdleAgentBehavior",
     "PromptEnvelope",
     "SingleJointActionPlan",

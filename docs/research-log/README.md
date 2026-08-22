@@ -31,3 +31,4 @@ Add completed entries below in chronological order:
 | 2026-08-16 | Directive-demo Phase 3 PPO | 25,000-step masked PPO checkpoint and deterministic reload validation pass; prototype remains unscored | [Entry](2026-08-16-directive-ppo.md) |
 | 2026-08-18 | Directive-demo Phase 3.5 PPO | Repository-owned PPO/Fabric checkpoint and deterministic reload gate pass; SB3 remains the descriptive reference | [Entry](2026-08-18-directive-ppo-v2.md) |
 | 2026-08-22 | Directive-demo Phase 4 fake actioner | Six live-wrapper success/fallback scenarios pass; prototype remains unscored | [Entry](2026-08-22-directive-phase4-fake-actioner.md) |
+| 2026-08-22 | Directive-demo Phase 5 local actioner | Pinned local E4B preflight passes: 5/5 validity, 6/6 sensitivity, p95 3.56 s | [Entry](2026-08-22-directive-phase5-actioner.md) |

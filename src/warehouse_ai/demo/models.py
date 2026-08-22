@@ -510,11 +510,17 @@ class LlamaCppConfig(DemoModel):
     base_url: AnyHttpUrl
     model_id: str
     model_file_sha256: str
+    model_revision: str | None = None
+    model_filename: str | None = None
+    quantization: str | None = None
+    llama_cpp_version: str | None = None
+    server_command: str | None = None
     context_size: PositiveInt
     gpu_layers: NonNegativeInt
     request_timeout_seconds: PositiveFloat = 12.0
     max_new_tokens: PositiveInt = 192
     temperature: Literal[0] = 0
+    seed: int = 0
 
     @field_validator("model_id")
     @classmethod
@@ -525,6 +531,130 @@ class LlamaCppConfig(DemoModel):
     @classmethod
     def validate_model_digest(cls, value: str) -> str:
         return _digest(value, "model_file_sha256")
+
+    @field_validator(
+        "model_revision",
+        "model_filename",
+        "quantization",
+        "llama_cpp_version",
+        "server_command",
+    )
+    @classmethod
+    def validate_optional_provenance(cls, value: str | None, info: Any) -> str | None:
+        return None if value is None else _nonblank(value, info.field_name)
+
+
+class ModelHealth(DemoModel):
+    """Evidence that the configured local model server is ready to serve."""
+
+    schema_version: Literal[1] = 1
+    base_url: AnyHttpUrl
+    model_id: str
+    advertised_model_ids: tuple[str, ...] = Field(min_length=1)
+    status: str
+    healthy: bool
+    checked_at_utc: datetime
+
+    @field_validator("model_id", "status")
+    @classmethod
+    def validate_health_text(cls, value: str, info: Any) -> str:
+        return _nonblank(value, info.field_name)
+
+    @field_validator("advertised_model_ids")
+    @classmethod
+    def validate_advertised_models(cls, value: Sequence[str]) -> tuple[str, ...]:
+        model_ids = tuple(_nonblank(item, "advertised_model_ids") for item in value)
+        if len(set(model_ids)) != len(model_ids):
+            raise ValueError("advertised_model_ids must be unique")
+        return model_ids
+
+    @field_validator("checked_at_utc")
+    @classmethod
+    def validate_health_timestamp(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("checked_at_utc must include a timezone")
+        return value
+
+
+class GemmaPreflightReport(DemoModel):
+    """Serializable result of the real local Gemma actioner preflight.
+
+    The report intentionally records validity, directive sensitivity, and
+    latency separately. A model is not considered usable merely because its
+    endpoint is healthy: all three gates must be reviewed before a demo run.
+    """
+
+    schema_version: Literal[1] = 1
+    selected_model: Literal["e4b", "e2b"]
+    model_id: str
+    model_file_sha256: str
+    base_url: AnyHttpUrl
+    context_size: PositiveInt
+    gpu_layers: NonNegativeInt
+    prompt_schema_sha256: str
+    health: ModelHealth
+    warmup_completed: bool
+    measured_requests: NonNegativeInt
+    valid_responses: NonNegativeInt
+    invalid_responses: NonNegativeInt
+    directive_classes: tuple[str, ...] = ()
+    sensitivity_states: NonNegativeInt = 0
+    sensitivity_pairs: NonNegativeInt = 0
+    sensitivity_valid_pairs: NonNegativeInt = 0
+    sensitivity_results: tuple[dict[str, JsonValue], ...] = ()
+    latency_seconds: tuple[NonNegativeFloat, ...] = ()
+    latency_median_seconds: NonNegativeFloat = 0.0
+    latency_p95_seconds: NonNegativeFloat = 0.0
+    p95_limit_seconds: PositiveFloat
+    validity_passed: bool
+    sensitivity_passed: bool
+    latency_passed: bool
+    passed: bool
+    hardware: dict[str, JsonValue] = Field(default_factory=dict)
+    server_command: str | None = None
+    quantization: str | None = None
+    checked_at_utc: datetime
+    failure_reason: str | None = None
+
+    @field_validator("model_id")
+    @classmethod
+    def validate_preflight_model_id(cls, value: str) -> str:
+        return _nonblank(value, "model_id")
+
+    @field_validator("model_file_sha256", "prompt_schema_sha256")
+    @classmethod
+    def validate_preflight_digests(cls, value: str, info: Any) -> str:
+        return _digest(value, info.field_name)
+
+    @field_validator("directive_classes")
+    @classmethod
+    def validate_directive_classes(cls, value: Sequence[str]) -> tuple[str, ...]:
+        classes = tuple(_nonblank(item, "directive_classes") for item in value)
+        if len(set(classes)) != len(classes):
+            raise ValueError("directive_classes must be unique")
+        return classes
+
+    @field_validator("server_command", "quantization", "failure_reason")
+    @classmethod
+    def normalize_optional_text(cls, value: str | None) -> str | None:
+        return None if value is None else value.strip() or None
+
+    @field_validator("checked_at_utc")
+    @classmethod
+    def validate_preflight_timestamp(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("checked_at_utc must include a timezone")
+        return value
+
+    @model_validator(mode="after")
+    def validate_preflight_counts(self) -> Self:
+        if self.valid_responses + self.invalid_responses > self.measured_requests:
+            raise ValueError(
+                "valid_responses and invalid_responses cannot exceed measured_requests"
+            )
+        if self.sensitivity_valid_pairs > self.sensitivity_pairs:
+            raise ValueError("sensitivity_valid_pairs cannot exceed sensitivity_pairs")
+        return self
 
 
 class DirectiveDemoConfig(DemoModel):

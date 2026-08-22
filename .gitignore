@@ -4,6 +4,10 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 
+# Local llama.cpp runtime and downloaded model files are reproducibility inputs,
+# not source-control artifacts.
+.local_runtime/
+
 # Prototype and experiment artifacts stay outside source control.
 results/demo/**/*.zip
 results/demo/**/*.jsonl

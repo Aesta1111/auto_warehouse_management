@@ -12,9 +12,12 @@ optimizer step are verified. Pickled simulator snapshots were rejected in favor
 of exact seed-plus-action replay. A separate, unscored directive-demo prototype
 has completed its directive-semantics probe and Phase 3/3.5 directive PPO gates; it
 does not advance the main research phases or validate the hybrid hypothesis.
-The remaining Phase 1 gate is the prepared Linux/A40 cloud run for pathfinder
-equivalence, real 4-bit weights, memory, latency, and cost. The main training
-pipeline has not been implemented.
+The directive-demo Phase 5 local actioner gate now passes with the pinned E4B
+Q4_0 GGUF on the local RTX 4050: five measured responses were valid, all six
+directive-sensitivity responses were valid, and p95 latency was 3.56 seconds
+against the 10-second limit. The remaining Phase 1 gate is the prepared
+Linux/A40 cloud run for pathfinder equivalence, real 4-bit weights, memory,
+latency, and cost. The main training pipeline has not been implemented.
 
 The hybrid improving on PPO is a hypothesis, not a required result. Negative and
 inconclusive findings must be reported without changing the primary metric after
@@ -98,6 +101,27 @@ GAE, loss, collector, and explicit Lightning Fabric loop required by Phase 3.5.
 Each manifest records vocabulary and behavior digests, seed partitions, package
 versions, validation metrics, and the checkpoint SHA-256. Gemma/actioner phases
 are intentionally not included in either command.
+
+Prepare and start the real local Gemma/llama.cpp actioner on a Windows NVIDIA
+machine from two terminals. The first command downloads the pinned 5.15 GB
+GGUF and the pinned CUDA 12.4 llama.cpp runtime into the ignored
+`.local_runtime/` directory, then serves it with partial GPU offload:
+
+```powershell
+.\scripts\start_local_gemma.ps1 -Prepare
+```
+
+Keep that server terminal open. In a second terminal, run the real local
+Gemma preflight separately before the demo:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\probe_gemma_actioner.py --config configs\demo\directive-demo-v1.yaml
+```
+
+The preflight writes the configured report only after checking health, model
+identity, strict responses, directive sensitivity, and p95 latency. An E4B
+failure returns a distinct code recommending an explicitly configured E2B run;
+it never silently substitutes a model.
 
 The deferred RunPod command is `bash scripts/run_phase1_cloud.sh` from an exact
 checked-out project commit.

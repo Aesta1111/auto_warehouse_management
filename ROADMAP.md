@@ -77,6 +77,12 @@ action shape, effect violation, timeout, and stale response; all produced
 serializable decision records and the required deterministic fallbacks. See
 [the Phase 4 research log entry](docs/research-log/2026-08-22-directive-phase4-fake-actioner.md).
 
+Directive-demo Phase 5's local actioner gate passed on 2026-08-22 with the
+pinned E4B Q4_0 GGUF and CUDA-enabled llama.cpp server: health/model identity,
+5/5 measured response validity, 6/6 directive-sensitivity validity, and the
+3.56-second p95 latency gate all passed. See
+[the Phase 5 research log entry](docs/research-log/2026-08-22-directive-phase5-actioner.md).
+
 ## Phase 2: runnable project foundation
 
 - [x] Add `pyproject.toml`, the `uv` lockfile, package metadata, and dependency

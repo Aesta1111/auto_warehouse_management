@@ -578,11 +578,17 @@ class LlamaCppConfig(DemoModel):
     base_url: AnyHttpUrl
     model_id: str
     model_file_sha256: str
+    model_revision: str | None = None
+    model_filename: str | None = None
+    quantization: str | None = None
+    llama_cpp_version: str | None = None
+    server_command: str | None = None
     context_size: PositiveInt
     gpu_layers: NonNegativeInt
     request_timeout_seconds: PositiveFloat = 12.0
     max_new_tokens: PositiveInt = 192
     temperature: Literal[0] = 0
+    seed: int = 0
 
 
 class DirectiveDemoConfig(DemoModel):
