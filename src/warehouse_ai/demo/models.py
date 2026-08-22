@@ -1,8 +1,8 @@
 """Immutable records and strict configuration for the directive prototype.
 
-Phase 1 shared contracts and Phase 3 directive-PPO records live here. Prompting,
-actioner, and controller records remain intentionally deferred to their later
-prototype phases.
+Phase 1 shared contracts, Phase 3 directive-PPO records, and the Phase 4
+actioner/controller records live here. Runtime services remain in ordinary
+typed modules rather than inside these immutable Pydantic models.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ import re
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 from pathlib import Path, PureWindowsPath
-from typing import TYPE_CHECKING, Any, Literal, Self, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, Literal, Self, TypeVar
 
 import yaml
 from pydantic import (
@@ -30,7 +30,7 @@ from pydantic import (
 )
 
 from warehouse_ai.demo.artifacts import canonical_json_bytes, sha256_bytes
-from warehouse_ai.domain import ActionMask, WarehouseObservation
+from warehouse_ai.domain import ActionMask, JointAction, WarehouseObservation
 
 if TYPE_CHECKING:
     from warehouse_ai.env import TarwareEnvWrapper
@@ -234,6 +234,82 @@ class DirectivePrediction(DemoModel):
         if not math.isclose(sum(probabilities), 1.0, rel_tol=1e-5, abs_tol=1e-6):
             raise ValueError("probabilities must sum to one")
         return probabilities
+
+
+class ActionerRequest(DemoModel):
+    """One immutable request sent across the actioner boundary."""
+
+    context: DirectiveContext
+    prediction: DirectivePrediction
+
+    @model_validator(mode="after")
+    def validate_prediction_state(self) -> Self:
+        """Keep the policy prediction and visible request at one state."""
+        if self.context.state_id != self.prediction.state_id:
+            raise ValueError("actioner request context and prediction states differ")
+        return self
+
+
+class GemmaActionResponse(DemoModel):
+    """The model-facing single joint destination response."""
+
+    destinations: tuple[NonNegativeInt, ...] = Field(min_length=1)
+    reason: str = Field(max_length=160)
+
+
+class SingleJointActionPlan(DemoModel):
+    """One validated plan for exactly one TA-RWARE joint action."""
+
+    state_id: str
+    directive_id: NonNegativeInt
+    action: JointAction
+    reason: str = Field(max_length=160)
+
+    @field_validator("state_id")
+    @classmethod
+    def validate_plan_state_id(cls, value: str) -> str:
+        return _nonblank(value, "state_id")
+
+
+PlanT = TypeVar("PlanT")
+
+
+class ActionerResult(DemoModel, Generic[PlanT]):
+    """A typed actioner response with transport provenance."""
+
+    plan: PlanT
+    raw_text: str
+    model_id: str
+    latency_ms: NonNegativeFloat
+
+    @field_validator("model_id")
+    @classmethod
+    def validate_model_id(cls, value: str) -> str:
+        return _nonblank(value, "model_id")
+
+
+class DemoDecision(DemoModel):
+    """The action and provenance selected for one simulator step."""
+
+    prediction: DirectivePrediction
+    action: JointAction
+    reason: str = Field(max_length=160)
+    source: Literal["gemma", "directive_executor", "automatic_no_op"]
+    model_id: str | None
+    raw_response: str | None
+    directive_effect_valid: bool
+    llm_latency_ms: NonNegativeFloat | None
+    fallback_reason: str | None
+
+
+class DemoStepRecord(DemoModel):
+    """Serializable decision plus the simulator result that followed it."""
+
+    decision: DemoDecision
+    rewards: tuple[float, ...]
+    terminated: tuple[bool, ...]
+    truncated: tuple[bool, ...]
+    simulator_info: dict[str, JsonValue]
 
 
 class DirectivePpoValidationSummary(DemoModel):

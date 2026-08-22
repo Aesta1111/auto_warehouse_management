@@ -7,6 +7,23 @@ from warehouse_ai.demo.artifacts import (
     sha256_file,
     write_json_atomic,
 )
+from warehouse_ai.demo.actioner import (
+    Actioner,
+    ActionerDecodeError,
+    ActionerEffectError,
+    ActionerError,
+    ActionerHealthError,
+    ActionerHttpError,
+    ActionerSchemaError,
+    ActionerTimeoutError,
+    EmptyActionerResponseError,
+    StaleActionPlanError,
+)
+from warehouse_ai.demo.controllers import (
+    DemoController,
+    DirectiveExecutorController,
+    DirectiveGemmaController,
+)
 from warehouse_ai.demo.directives import (
     DeliverCarriedShelfBehavior,
     DirectiveBehavior,
@@ -23,7 +40,11 @@ from warehouse_ai.demo.directives import (
     default_behaviors,
 )
 from warehouse_ai.demo.models import (
+    ActionerRequest,
+    ActionerResult,
     DemoModel,
+    DemoDecision,
+    DemoStepRecord,
     DirectiveContext,
     DirectiveDefinition,
     DirectiveDemoConfig,
@@ -34,9 +55,12 @@ from warehouse_ai.demo.models import (
     DirectiveProbeReport,
     DirectivePrediction,
     DirectiveVocabulary,
+    GemmaActionResponse,
     LlamaCppConfig,
+    SingleJointActionPlan,
     load_yaml_config,
 )
+from warehouse_ai.demo.prompting import ChatMessage, GemmaPromptBuilder, PromptEnvelope
 from warehouse_ai.demo.ppo import (
     DirectivePpoPolicy,
     evaluate_directive_ppo,
@@ -46,6 +70,20 @@ from warehouse_ai.demo.sb3 import DirectiveSb3Env
 
 __all__ = [
     "DemoModel",
+    "Actioner",
+    "ActionerDecodeError",
+    "ActionerEffectError",
+    "ActionerError",
+    "ActionerHealthError",
+    "ActionerHttpError",
+    "ActionerRequest",
+    "ActionerResult",
+    "ActionerSchemaError",
+    "ActionerTimeoutError",
+    "ChatMessage",
+    "DemoController",
+    "DemoDecision",
+    "DemoStepRecord",
     "DeliverCarriedShelfBehavior",
     "DirectiveContext",
     "DirectiveBehavior",
@@ -64,9 +102,17 @@ __all__ = [
     "DirectiveRegistry",
     "DirectiveSb3Env",
     "DirectiveVocabulary",
+    "DirectiveExecutorController",
+    "DirectiveGemmaController",
+    "EmptyActionerResponseError",
+    "GemmaActionResponse",
+    "GemmaPromptBuilder",
     "InapplicableDirectiveError",
     "LlamaCppConfig",
     "RepositionIdleAgentBehavior",
+    "PromptEnvelope",
+    "SingleJointActionPlan",
+    "StaleActionPlanError",
     "ServiceRequestedShelfBehavior",
     "UnknownDirectiveError",
     "WaitBehavior",
