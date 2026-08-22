@@ -89,8 +89,10 @@ class DirectiveRolloutBuffer:
         next_value: float,
         old_log_probability: float,
     ) -> None:
-        if self._finalized or self._position >= self.capacity:
-            raise RuntimeError("rollout buffer is finalized or full")
+        if self._finalized:
+            raise RuntimeError("cannot mutate a finalized rollout buffer")
+        if self._position >= self.capacity:
+            raise RuntimeError("rollout buffer overflow")
         observation_array = np.asarray(observation, dtype=np.float32)
         mask_array = np.asarray(action_mask, dtype=np.bool_)
         if observation_array.shape != self.observation_shape:
@@ -112,8 +114,10 @@ class DirectiveRolloutBuffer:
         self._position += 1
 
     def finalize(self, *, gamma: float, gae_lambda: float) -> None:
-        if self._finalized or self._position != self.capacity:
-            raise RuntimeError("buffer must be full and not already finalized")
+        if self._finalized:
+            raise RuntimeError("rollout buffer is already finalized")
+        if self._position != self.capacity:
+            raise RuntimeError("cannot finalize a partially filled rollout buffer")
         advantages, returns = compute_gae(
             torch.from_numpy(self.rewards),
             torch.from_numpy(self.old_values),

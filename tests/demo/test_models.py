@@ -1,23 +1,25 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
+import sys
 from typing import Any, cast
 
 import numpy as np
 import pytest
 from pydantic import ValidationError
 
-from warehouse_ai.demo.models import (
+from warehouse_ai.demo.contracts.base import load_yaml_config
+from warehouse_ai.demo.contracts.directives import (
     DirectiveContext,
     DirectiveDefinition,
-    DirectiveDemoConfig,
-    DirectivePpoConfig,
     DirectiveProbeConfig,
     DirectiveProbeReport,
     DirectiveVocabulary,
-    LlamaCppConfig,
-    load_yaml_config,
 )
+from warehouse_ai.demo.contracts.evaluation import DirectiveDemoConfig
+from warehouse_ai.demo.contracts.inference import LlamaCppBackendConfig
+from warehouse_ai.demo.contracts.ppo import DirectivePpoConfig
 from warehouse_ai.domain import ActionMask, AgentObservation, AgentRole, Position
 from warehouse_ai.domain import ShelfObservation, WarehouseObservation
 
@@ -25,7 +27,7 @@ from warehouse_ai.domain import ShelfObservation, WarehouseObservation
 ROOT = Path(__file__).parents[2]
 
 
-def test_committed_phase1_configs_load_without_runtime_side_effects() -> None:
+def test_committed_versioned_configs_load() -> None:
     vocabulary = DirectiveVocabulary.load(ROOT / "configs/demo/directives-v1.yaml")
     probe = load_yaml_config(
         ROOT / "configs/demo/directive-probe-v1.yaml", DirectiveProbeConfig
@@ -36,8 +38,14 @@ def test_committed_phase1_configs_load_without_runtime_side_effects() -> None:
     ppo_v2 = load_yaml_config(
         ROOT / "configs/demo/directive-ppo-v2.yaml", DirectivePpoConfig
     )
-    demo = load_yaml_config(
-        ROOT / "configs/demo/directive-demo-v1.yaml", DirectiveDemoConfig
+    probe_v2 = load_yaml_config(
+        ROOT / "configs/demo/directive-probe-v2.yaml", DirectiveProbeConfig
+    )
+    ppo_v3 = load_yaml_config(
+        ROOT / "configs/demo/directive-ppo-v3.yaml", DirectivePpoConfig
+    )
+    demo_v2 = load_yaml_config(
+        ROOT / "configs/demo/directive-demo-v2.yaml", DirectiveDemoConfig
     )
 
     assert vocabulary.size == 4
@@ -46,7 +54,28 @@ def test_committed_phase1_configs_load_without_runtime_side_effects() -> None:
     assert ppo.train_seeds[-1] == 8115
     assert ppo_v2.backend == "lightning-fabric"
     assert ppo_v2.value_coefficient == 0.5
-    assert demo.llama_cpp.temperature == 0
+    assert probe_v2.schema_version == 2
+    assert ppo_v3.schema_version == 3
+    assert demo_v2.inference.backend == "llama_cpp"
+    assert demo_v2.preflight_p95_limit_seconds == 3.92
+
+
+def test_contract_import_does_not_load_ml_or_transport_frameworks() -> None:
+    code = """
+import sys
+from warehouse_ai.demo.contracts.ppo import DirectivePpoConfig
+from warehouse_ai.demo.contracts.evaluation import DirectiveDemoConfig
+forbidden = {'torch', 'lightning', 'stable_baselines3', 'sb3_contrib', 'httpx'}
+assert not forbidden.intersection(sys.modules), sorted(forbidden.intersection(sys.modules))
+"""
+    completed = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
 
 
 def test_vocabulary_digest_is_stable_and_ids_are_canonical() -> None:
@@ -160,7 +189,7 @@ def test_configs_reject_absolute_paths_overlapping_seeds_and_bad_urls() -> None:
         )
 
     with pytest.raises(ValidationError, match="base_url"):
-        LlamaCppConfig(
+        LlamaCppBackendConfig(
             base_url=cast(Any, "not-a-url"),
             model_id="gemma",
             model_file_sha256="0" * 64,

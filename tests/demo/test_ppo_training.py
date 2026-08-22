@@ -6,13 +6,14 @@ import numpy as np
 import pytest
 
 from warehouse_ai.demo.directives import build_directive_registry
-from warehouse_ai.demo.models import (
+from warehouse_ai.demo.contracts.directives import DirectiveVocabulary
+from warehouse_ai.demo.contracts.ppo import (
     DirectivePpoConfig,
     DirectivePpoValidationSummary,
-    DirectiveVocabulary,
 )
-from warehouse_ai.demo.ppo import DirectivePpoPolicy, train_directive_ppo
-from warehouse_ai.demo.sb3 import DirectiveSb3Env
+from warehouse_ai.demo.ppo.environment import DirectiveGymEnv
+from warehouse_ai.demo.ppo.policy import DirectivePpoPolicy
+from warehouse_ai.demo.ppo.service import train_directive_ppo
 
 
 ROOT = Path(__file__).parents[2]
@@ -26,7 +27,7 @@ def test_short_fabric_collect_update_checkpoint_and_reload(
     vocabulary = DirectiveVocabulary.load(ROOT / "configs/demo/directives-v1.yaml")
     registry = build_directive_registry(vocabulary)
     config = DirectivePpoConfig(
-        schema_version=2,
+        schema_version=3,
         environment_id=ENVIRONMENT_ID,
         vocabulary_path=Path("configs/demo/directives-v1.yaml"),
         train_seeds=(8100,),
@@ -41,10 +42,10 @@ def test_short_fabric_collect_update_checkpoint_and_reload(
         max_grad_norm=0.5,
         normalize_advantage=True,
         backend="lightning-fabric",
-        model_implementation_version="directive-ppo-module-v1",
+        model_implementation_version="directive-ppo-module-v2",
         buffer_schema_version="directive-rollout-buffer-v1",
-        gae_version="explicit-bootstrap-trace-v1",
-        loss_version="clipped-surrogate-v1",
+        gae_version="gae-terminated-bootstrap-truncated-trace-v1",
+        loss_version="clipped-ppo-loss-v1",
     )
     summary = DirectivePpoValidationSummary(
         seeds=(8200,),
@@ -55,14 +56,15 @@ def test_short_fabric_collect_update_checkpoint_and_reload(
         inapplicable_directives=0,
     )
     monkeypatch.setattr(  # type: ignore[attr-defined]
-        "warehouse_ai.demo.ppo.evaluate_directive_ppo",
+        "warehouse_ai.demo.ppo.training.evaluate_directive_ppo",
         lambda *_args, **_kwargs: summary,
     )
 
-    output_directory = tmp_path / "directive-ppo-v2-smoke"
+    output_directory = tmp_path / "directive-ppo-v3-smoke"
     manifest = train_directive_ppo(config, vocabulary, registry, output_directory)
-    checkpoint = output_directory / "directive-ppo-v2.pt"
-    assert manifest.schema_version == 2
+    checkpoint = output_directory / "directive-ppo-v3.pt"
+    assert manifest.schema_version == 3
+    assert manifest.behavior_engine_version == registry.engine_version
     assert manifest.hyperparameters["optimizer_steps"] == 4
     assert manifest.hyperparameters["selected_checkpoint_environment_steps"] == 8
     assert manifest.hyperparameters["selected_checkpoint_optimizer_steps"] == 4
@@ -80,7 +82,7 @@ def test_short_fabric_collect_update_checkpoint_and_reload(
             manifest.model_copy(update={"architecture_sha256": "0" * 64}),
         )
 
-    environment = DirectiveSb3Env(
+    environment = DirectiveGymEnv(
         ENVIRONMENT_ID, vocabulary, registry, (8200,), episode_steps=16
     )
     try:

@@ -7,12 +7,13 @@ import numpy as np
 import pytest
 from stable_baselines3.common.env_checker import check_env
 
+from warehouse_ai.demo.contracts.directives import DirectiveVocabulary
 from warehouse_ai.demo.directives import (
-    InapplicableDirectiveError,
+    DirectiveError,
+    DirectiveFailure,
     build_directive_registry,
 )
-from warehouse_ai.demo.models import DirectiveVocabulary
-from warehouse_ai.demo.sb3 import DirectiveSb3Env
+from warehouse_ai.demo.ppo.environment import DirectiveGymEnv
 from warehouse_ai.env import MaskAwareDiscrete
 
 
@@ -26,8 +27,8 @@ def vocabulary() -> DirectiveVocabulary:
 
 
 @pytest.fixture
-def directive_env(vocabulary: DirectiveVocabulary) -> Iterator[DirectiveSb3Env]:
-    environment = DirectiveSb3Env(
+def directive_env(vocabulary: DirectiveVocabulary) -> Iterator[DirectiveGymEnv]:
+    environment = DirectiveGymEnv(
         ENVIRONMENT_ID,
         vocabulary,
         build_directive_registry(vocabulary),
@@ -54,7 +55,7 @@ def test_mask_aware_discrete_samples_only_valid_ids() -> None:
 
 
 def test_directive_facade_passes_checker_and_exposes_scalar_mask(
-    directive_env: DirectiveSb3Env,
+    directive_env: DirectiveGymEnv,
 ) -> None:
     observation, info = directive_env.reset(seed=8100)
 
@@ -66,10 +67,11 @@ def test_directive_facade_passes_checker_and_exposes_scalar_mask(
 
 
 def test_directive_facade_rejects_inapplicable_and_batched_actions(
-    directive_env: DirectiveSb3Env,
+    directive_env: DirectiveGymEnv,
 ) -> None:
     directive_env.reset(seed=8100)
-    with pytest.raises(InapplicableDirectiveError):
+    with pytest.raises(DirectiveError) as error:
         directive_env.step(2)
+    assert error.value.code is DirectiveFailure.INAPPLICABLE
     with pytest.raises(TypeError, match="scalar"):
         directive_env.step(np.asarray([0], dtype=np.int64))

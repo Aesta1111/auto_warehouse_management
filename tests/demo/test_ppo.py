@@ -8,13 +8,13 @@ from sb3_contrib import MaskablePPO
 
 from warehouse_ai.demo.artifacts import sha256_file
 from warehouse_ai.demo.directives import build_directive_registry
-from warehouse_ai.demo.models import (
+from warehouse_ai.demo.contracts.directives import DirectiveVocabulary
+from warehouse_ai.demo.contracts.ppo import (
     DirectivePpoManifest,
     DirectivePpoValidationSummary,
-    DirectiveVocabulary,
 )
-from warehouse_ai.demo.ppo import DirectivePpoPolicy
-from warehouse_ai.demo.sb3 import DirectiveSb3Env
+from warehouse_ai.demo.ppo.environment import DirectiveGymEnv
+from warehouse_ai.demo.ppo.policy import DirectivePpoPolicy
 
 
 ROOT = Path(__file__).parents[2]
@@ -26,7 +26,7 @@ def test_policy_masks_probabilities_and_save_reload_is_deterministic(
 ) -> None:
     vocabulary = DirectiveVocabulary.load(ROOT / "configs/demo/directives-v1.yaml")
     registry = build_directive_registry(vocabulary)
-    environment = DirectiveSb3Env(
+    environment = DirectiveGymEnv(
         ENVIRONMENT_ID,
         vocabulary,
         registry,
@@ -94,7 +94,7 @@ def test_policy_load_rejects_behavior_or_checkpoint_digest_mismatch(
 ) -> None:
     vocabulary = DirectiveVocabulary.load(ROOT / "configs/demo/directives-v1.yaml")
     registry = build_directive_registry(vocabulary)
-    environment = DirectiveSb3Env(
+    environment = DirectiveGymEnv(
         ENVIRONMENT_ID,
         vocabulary,
         registry,
@@ -133,7 +133,7 @@ def test_policy_load_rejects_behavior_or_checkpoint_digest_mismatch(
         try:
             DirectivePpoPolicy.load(checkpoint, vocabulary, bad_manifest)
         except ValueError as error:
-            assert "behavior digest" in str(error)
+            assert "directive rules" in str(error)
         else:
             raise AssertionError("behavior digest mismatch was accepted")
     finally:

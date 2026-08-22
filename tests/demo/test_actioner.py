@@ -2,28 +2,29 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import cast
+
 import numpy as np
 import pytest
 
-from warehouse_ai.demo.actioner import (
-    ActionerSchemaError,
-    ActionerTimeoutError,
+from warehouse_ai.demo.contracts.directives import (
+    DirectiveContext,
+    DirectivePrediction,
+    DirectiveVocabulary,
+)
+from warehouse_ai.demo.contracts.inference import (
+    ActionerRequest,
+    ActionerResult,
+    FailureCode,
+    GemmaActionResponse,
 )
 from warehouse_ai.demo.controllers import (
     DirectiveExecutorController,
     DirectiveGemmaController,
 )
 from warehouse_ai.demo.directives import DirectiveRegistry, build_directive_registry
-from warehouse_ai.demo.models import (
-    ActionerRequest,
-    DemoStepRecord,
-    DirectiveContext,
-    DirectivePrediction,
-    DirectiveVocabulary,
-    ActionerResult,
-    SingleJointActionPlan,
-)
-from warehouse_ai.demo.ppo import DirectivePpoPolicy
+from warehouse_ai.demo.directives.rules import RULES
+from warehouse_ai.demo.inference.actioner import Actioner, ActionerError
+from warehouse_ai.demo.ppo.policy import DirectivePpoPolicy
 from warehouse_ai.env import TarwareEnvWrapper
 
 
@@ -42,8 +43,6 @@ def registry(vocabulary: DirectiveVocabulary) -> DirectiveRegistry:
 
 
 class FakePolicy:
-    """Test-only deterministic policy implementing the public prediction seam."""
-
     def __init__(self, vocabulary: DirectiveVocabulary, selected_id: int) -> None:
         self.vocabulary = vocabulary
         self.selected_id = selected_id
@@ -51,15 +50,13 @@ class FakePolicy:
     def predict(
         self, context: DirectiveContext, mask: np.ndarray
     ) -> DirectivePrediction:
-        selected_id = self.selected_id
-        if not bool(mask[selected_id]):
-            selected_id = self.vocabulary.wait_directive_id
+        selected = self.selected_id if bool(mask[self.selected_id]) else 0
         probabilities = [0.0] * self.vocabulary.size
-        probabilities[selected_id] = 1.0
+        probabilities[selected] = 1.0
         return DirectivePrediction(
             state_id=context.state_id,
             episode_step=context.observation.step,
-            directive=self.vocabulary.by_id(selected_id),
+            directive=self.vocabulary.by_id(selected),
             probabilities=tuple(probabilities),
             value_estimate=0.0,
             policy_latency_ms=0.0,
@@ -68,51 +65,56 @@ class FakePolicy:
 
 
 class FakeActioner:
-    """Test-only actioner used to exercise the generic Phase 4 protocol."""
-
-    def __init__(self, registry: DirectiveRegistry, mode: str = "valid") -> None:
+    def __init__(
+        self,
+        wrapper: TarwareEnvWrapper,
+        registry: DirectiveRegistry,
+        mode: str = "valid",
+    ) -> None:
+        self.wrapper = wrapper
         self.registry = registry
         self.mode = mode
         self.called = False
 
-    def act(
-        self, request: ActionerRequest, wrapper: TarwareEnvWrapper
-    ) -> ActionerResult[SingleJointActionPlan]:
+    def act(self, request: ActionerRequest) -> ActionerResult:
         self.called = True
-        if self.mode == "timeout":
-            raise ActionerTimeoutError("fake response timed out")
-        if self.mode == "malformed":
-            raise ActionerSchemaError("fake response was malformed")
-
+        code_by_mode = {
+            "health": FailureCode.HEALTH,
+            "timeout": FailureCode.TIMEOUT,
+            "transport": FailureCode.TRANSPORT,
+            "malformed": FailureCode.MALFORMED_RESPONSE,
+        }
+        if self.mode in code_by_mode:
+            raise ActionerError(code_by_mode[self.mode], f"injected {self.mode}")
         action = self.registry.execute(
-            request.prediction.directive.directive_id, request.context, wrapper
+            request.prediction.directive.directive_id,
+            request.context,
+            self.wrapper,
         )
-        if self.mode == "invalid":
-            # A valid Pydantic plan containing a wrong action shape must still be
-            # rejected by the controller's wrapper validation.
-            action = action.model_copy(update={"actions": ()})
+        destinations = tuple(item.destination_id for item in action.actions)
+        if self.mode == "invalid_length":
+            destinations = (0,)
+        elif self.mode == "invalid_action":
+            destinations = (999, *destinations[1:])
         elif self.mode == "effect":
-            action = wrapper.no_op()
-
-        state_id = "stale" if self.mode == "stale" else request.context.state_id
-        plan = SingleJointActionPlan(
-            state_id=state_id,
-            directive_id=request.prediction.directive.directive_id,
-            action=action,
-            reason="fake action",
-        )
-        return ActionerResult[SingleJointActionPlan](
-            plan=plan,
-            raw_text='{"destinations":[1,0,0,0,0],"reason":"fake action"}',
-            model_id="fake-actioner",
+            destinations = (0,) * len(destinations)
+        elif self.mode == "stale":
+            self.wrapper.step(self.wrapper.no_op())
+        return ActionerResult(
+            response=GemmaActionResponse(
+                destinations=destinations,
+                reason="fake action",
+            ),
+            raw_text="{}",
+            model_id="fake-model",
             latency_ms=1.0,
+            prompt_tokens=10,
+            completion_tokens=4,
         )
 
 
-class BrokenExecutorRegistry(DirectiveRegistry):
-    def execute(
-        self, directive_id: int, context: DirectiveContext, wrapper: TarwareEnvWrapper
-    ):  # type: ignore[override]
+class BrokenRegistry(DirectiveRegistry):
+    def execute(self, directive_id, context, wrapper):  # type: ignore[no-untyped-def,override]
         del directive_id, context, wrapper
         raise RuntimeError("injected executor failure")
 
@@ -123,203 +125,99 @@ def _wrapper() -> TarwareEnvWrapper:
     return wrapper
 
 
-def _policy(vocabulary: DirectiveVocabulary, selected_id: int) -> DirectivePpoPolicy:
-    return cast(DirectivePpoPolicy, FakePolicy(vocabulary, selected_id))
+def _policy(vocabulary: DirectiveVocabulary, selected: int) -> DirectivePpoPolicy:
+    return cast(DirectivePpoPolicy, FakePolicy(vocabulary, selected))
 
 
-def test_executor_and_fake_actioner_choose_same_frozen_directive(
+def test_valid_model_output_matches_executor_and_preserves_provenance(
     vocabulary: DirectiveVocabulary, registry: DirectiveRegistry
 ) -> None:
     executor_wrapper = _wrapper()
-    actioner_wrapper = _wrapper()
+    gemma_wrapper = _wrapper()
     try:
-        policy = _policy(vocabulary, selected_id=1)
-        executor = DirectiveExecutorController(policy, registry)
-        actioner = FakeActioner(registry)
-        gemma = DirectiveGemmaController(policy, registry, actioner)
-
-        executor_decision = executor.choose_action(executor_wrapper)
-        gemma_decision = gemma.choose_action(actioner_wrapper)
-
-        assert (
-            executor_decision.prediction.directive
-            == gemma_decision.prediction.directive
+        policy = _policy(vocabulary, 1)
+        expected = DirectiveExecutorController(policy, registry).choose_action(
+            executor_wrapper
         )
-        assert executor_decision.action == gemma_decision.action
-        assert gemma_decision.source == "gemma"
-        assert gemma_decision.directive_effect_valid
+        actual = DirectiveGemmaController(
+            policy,
+            registry,
+            cast(Actioner, FakeActioner(gemma_wrapper, registry)),
+        ).choose_action(gemma_wrapper)
+        assert actual.action == expected.action
+        assert actual.source == "gemma"
+        assert actual.failure_code is None
+        assert actual.prompt_tokens == 10
+        assert actual.completion_tokens == 4
     finally:
         executor_wrapper.close()
-        actioner_wrapper.close()
-
-
-def test_valid_fake_plan_reaches_wrapper_unchanged(
-    vocabulary: DirectiveVocabulary, registry: DirectiveRegistry
-) -> None:
-    wrapper = _wrapper()
-    try:
-        actioner = FakeActioner(registry)
-        controller = DirectiveGemmaController(
-            _policy(vocabulary, selected_id=1), registry, actioner
-        )
-        decision = controller.choose_action(wrapper)
-        _, rewards, terminated, truncated, simulator_info = wrapper.step(
-            decision.action
-        )
-        record = DemoStepRecord(
-            decision=decision,
-            rewards=tuple(float(value) for value in rewards),
-            terminated=tuple(bool(value) for value in terminated),
-            truncated=tuple(bool(value) for value in truncated),
-            simulator_info=simulator_info,
-        )
-
-        assert actioner.called
-        assert decision.source == "gemma"
-        assert record.decision.action == decision.action
-        assert all(not value for value in terminated)
-        assert all(not value for value in truncated)
-    finally:
-        wrapper.close()
-
-
-@pytest.mark.parametrize("mode", ["malformed", "invalid", "effect", "timeout", "stale"])
-def test_fake_actioner_failures_use_same_directive_executor_fallback(
-    mode: str,
-    vocabulary: DirectiveVocabulary,
-    registry: DirectiveRegistry,
-) -> None:
-    wrapper = _wrapper()
-    try:
-        controller = DirectiveGemmaController(
-            _policy(vocabulary, selected_id=1),
-            registry,
-            FakeActioner(registry, mode=mode),
-        )  # type: ignore[arg-type]
-        before = DirectiveContext.capture(wrapper)
-        decision = controller.choose_action(wrapper)
-        expected = registry.execute(1, before, wrapper)
-        _, rewards, terminated, truncated, simulator_info = wrapper.step(
-            decision.action
-        )
-        record = DemoStepRecord(
-            decision=decision,
-            rewards=tuple(float(value) for value in rewards),
-            terminated=tuple(bool(value) for value in terminated),
-            truncated=tuple(bool(value) for value in truncated),
-            simulator_info=simulator_info,
-        )
-
-        assert decision.source == "directive_executor"
-        assert decision.action == expected
-        assert not decision.directive_effect_valid
-        assert decision.fallback_reason is not None
-        assert record.decision.fallback_reason == decision.fallback_reason
-    finally:
-        wrapper.close()
-
-
-def test_wait_bypasses_actioner(
-    vocabulary: DirectiveVocabulary, registry: DirectiveRegistry
-) -> None:
-    wrapper = _wrapper()
-    try:
-        actioner = FakeActioner(registry, mode="timeout")
-        controller = DirectiveGemmaController(
-            _policy(vocabulary, selected_id=vocabulary.wait_directive_id),
-            registry,
-            actioner,
-        )  # type: ignore[arg-type]
-        decision = controller.choose_action(wrapper)
-
-        assert not actioner.called
-        assert decision.source == "directive_executor"
-        assert decision.action == wrapper.no_op()
-        assert decision.directive_effect_valid
-    finally:
-        wrapper.close()
-
-
-def test_failed_directive_fallback_uses_automatic_no_op(
-    vocabulary: DirectiveVocabulary, registry: DirectiveRegistry
-) -> None:
-    broken_registry = BrokenExecutorRegistry(vocabulary, registry._behaviors)  # type: ignore[attr-defined]
-    wrapper = _wrapper()
-    try:
-        controller = DirectiveGemmaController(
-            _policy(vocabulary, selected_id=1),
-            broken_registry,
-            FakeActioner(registry, mode="timeout"),
-        )  # type: ignore[arg-type]
-        decision = controller.choose_action(wrapper)
-
-        assert decision.source == "automatic_no_op"
-        assert decision.action == wrapper.no_op()
-        assert "executor failed" in (decision.fallback_reason or "")
-    finally:
-        wrapper.close()
-
-
-def _run_fake_episode(
-    wrapper: TarwareEnvWrapper,
-    controller: DirectiveGemmaController,
-    max_steps: int = 6,
-) -> list[DemoStepRecord]:
-    """Run a short test-only episode and preserve every decision record."""
-    records: list[DemoStepRecord] = []
-    for _ in range(max_steps):
-        decision = controller.choose_action(wrapper)
-        _, rewards, terminated, truncated, simulator_info = wrapper.step(
-            decision.action
-        )
-        record = DemoStepRecord(
-            decision=decision,
-            rewards=tuple(float(value) for value in rewards),
-            terminated=tuple(bool(value) for value in terminated),
-            truncated=tuple(bool(value) for value in truncated),
-            simulator_info=simulator_info,
-        )
-        # Exercise the same serialization boundary used by future episode
-        # artifacts; a record that cannot serialize is not a passing fake run.
-        record.model_dump(mode="json")
-        records.append(record)
-        if any(terminated) or any(truncated):
-            break
-    return records
+        gemma_wrapper.close()
 
 
 @pytest.mark.parametrize(
-    "mode", ["valid", "malformed", "invalid", "effect", "timeout", "stale"]
+    ("mode", "code"),
+    [
+        ("health", FailureCode.HEALTH),
+        ("timeout", FailureCode.TIMEOUT),
+        ("transport", FailureCode.TRANSPORT),
+        ("malformed", FailureCode.MALFORMED_RESPONSE),
+        ("invalid_length", FailureCode.INVALID_ACTION),
+        ("invalid_action", FailureCode.INVALID_ACTION),
+        ("effect", FailureCode.EFFECT_VIOLATION),
+        ("stale", FailureCode.STALE_STATE),
+    ],
 )
-def test_fake_actioner_short_episodes_complete_with_exact_records(
+def test_every_structured_model_failure_uses_deterministic_fallback(
     mode: str,
+    code: FailureCode,
     vocabulary: DirectiveVocabulary,
     registry: DirectiveRegistry,
 ) -> None:
-    """Exercise success and every actioner fallback through the live wrapper."""
     wrapper = _wrapper()
     try:
-        actioner = FakeActioner(registry, mode=mode)
         controller = DirectiveGemmaController(
-            _policy(vocabulary, selected_id=1), registry, actioner
-        )  # type: ignore[arg-type]
-        records = _run_fake_episode(wrapper, controller)
+            _policy(vocabulary, 1),
+            registry,
+            cast(Actioner, FakeActioner(wrapper, registry, mode)),
+        )
+        decision = controller.choose_action(wrapper)
+        assert decision.source == "directive_executor"
+        assert decision.failure_code is code
+        assert decision.failure_detail
+        assert not decision.directive_effect_valid
+        registry.validate_effect(1, DirectiveContext.capture(wrapper), decision.action)
+    finally:
+        wrapper.close()
 
-        assert len(records) == 6
-        assert actioner.called
-        assert all(record.decision.prediction.state_id for record in records)
 
-        if mode == "valid":
-            assert any(record.decision.source == "gemma" for record in records)
-            assert all(record.decision.fallback_reason is None for record in records)
-        else:
-            fallback_records = [
-                record
-                for record in records
-                if record.decision.source == "directive_executor"
-                and not record.decision.directive_effect_valid
-            ]
-            assert fallback_records
-            assert all(record.decision.fallback_reason for record in fallback_records)
+def test_wait_bypasses_model(
+    vocabulary: DirectiveVocabulary, registry: DirectiveRegistry
+) -> None:
+    wrapper = _wrapper()
+    try:
+        actioner = FakeActioner(wrapper, registry, "timeout")
+        decision = DirectiveGemmaController(
+            _policy(vocabulary, 0), registry, cast(Actioner, actioner)
+        ).choose_action(wrapper)
+        assert not actioner.called
+        assert decision.source == "directive_executor"
+        assert decision.failure_code is None
+        assert decision.action == wrapper.no_op()
+    finally:
+        wrapper.close()
+
+
+def test_executor_failure_has_one_code_and_automatic_noop(
+    vocabulary: DirectiveVocabulary,
+) -> None:
+    wrapper = _wrapper()
+    broken = BrokenRegistry(vocabulary, RULES)
+    try:
+        decision = DirectiveExecutorController(
+            _policy(vocabulary, 1), broken
+        ).choose_action(wrapper)
+        assert decision.source == "automatic_no_op"
+        assert decision.failure_code is FailureCode.EXECUTOR_FAILURE
+        assert decision.action == wrapper.no_op()
     finally:
         wrapper.close()
