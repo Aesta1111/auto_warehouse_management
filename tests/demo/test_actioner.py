@@ -258,3 +258,68 @@ def test_failed_directive_fallback_uses_automatic_no_op(
         assert "executor failed" in (decision.fallback_reason or "")
     finally:
         wrapper.close()
+
+
+def _run_fake_episode(
+    wrapper: TarwareEnvWrapper,
+    controller: DirectiveGemmaController,
+    max_steps: int = 6,
+) -> list[DemoStepRecord]:
+    """Run a short test-only episode and preserve every decision record."""
+    records: list[DemoStepRecord] = []
+    for _ in range(max_steps):
+        decision = controller.choose_action(wrapper)
+        _, rewards, terminated, truncated, simulator_info = wrapper.step(
+            decision.action
+        )
+        record = DemoStepRecord(
+            decision=decision,
+            rewards=tuple(float(value) for value in rewards),
+            terminated=tuple(bool(value) for value in terminated),
+            truncated=tuple(bool(value) for value in truncated),
+            simulator_info=simulator_info,
+        )
+        # Exercise the same serialization boundary used by future episode
+        # artifacts; a record that cannot serialize is not a passing fake run.
+        record.model_dump(mode="json")
+        records.append(record)
+        if any(terminated) or any(truncated):
+            break
+    return records
+
+
+@pytest.mark.parametrize(
+    "mode", ["valid", "malformed", "invalid", "effect", "timeout", "stale"]
+)
+def test_fake_actioner_short_episodes_complete_with_exact_records(
+    mode: str,
+    vocabulary: DirectiveVocabulary,
+    registry: DirectiveRegistry,
+) -> None:
+    """Exercise success and every actioner fallback through the live wrapper."""
+    wrapper = _wrapper()
+    try:
+        actioner = FakeActioner(registry, mode=mode)
+        controller = DirectiveGemmaController(
+            _policy(vocabulary, selected_id=1), registry, actioner
+        )  # type: ignore[arg-type]
+        records = _run_fake_episode(wrapper, controller)
+
+        assert len(records) == 6
+        assert actioner.called
+        assert all(record.decision.prediction.state_id for record in records)
+
+        if mode == "valid":
+            assert any(record.decision.source == "gemma" for record in records)
+            assert all(record.decision.fallback_reason is None for record in records)
+        else:
+            fallback_records = [
+                record
+                for record in records
+                if record.decision.source == "directive_executor"
+                and not record.decision.directive_effect_valid
+            ]
+            assert fallback_records
+            assert all(record.decision.fallback_reason for record in fallback_records)
+    finally:
+        wrapper.close()

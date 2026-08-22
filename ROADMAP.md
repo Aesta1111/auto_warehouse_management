@@ -52,6 +52,7 @@ complete, and its seeds remain excluded from later scientific evaluation.
 - [x] Implement the separate directive PPO phase after this gate remains stable.
 - [x] Complete Phase 3.5's repository-owned PPO model, rollout buffer, GAE,
   loss, collector, and Lightning/Fabric training-loop refactor.
+- [x] Complete the Phase 4 fake-actioner success and fallback episode gate.
 
 Phase 2 of the prototype passed on 2026-08-13: 2,500 states checked across
 seeds 8000-8004 with zero uncovered states, executor failures, or effect
@@ -69,6 +70,12 @@ digest-verified schema-v2 checkpoint. Reload reproduced directives,
 probabilities, values, and the four-seed validation summary; the policy used two
 non-wait directives with zero inapplicable selections. The Phase 3 SB3 run
 remains the descriptive reference. See [the Phase 3.5 research log entry](docs/research-log/2026-08-18-directive-ppo-v2.md).
+
+Directive-demo Phase 4's fake-actioner gate passed on 2026-08-22. Six short
+TA-RWARE wrapper scenarios covered valid output, malformed output, invalid
+action shape, effect violation, timeout, and stale response; all produced
+serializable decision records and the required deterministic fallbacks. See
+[the Phase 4 research log entry](docs/research-log/2026-08-22-directive-phase4-fake-actioner.md).
 
 ## Phase 2: runnable project foundation
 
