@@ -12,6 +12,33 @@ The boundary must be designed so the main research project can later investigate
 an ordered sequence of actions, but this prototype must not implement, simulate,
 or claim support for action sequences.
 
+## 0. 2026-08-22 architecture refactor status
+
+The demo now uses subsystem packages under `contracts/`, `directives/`, `ppo/`,
+`inference/`, and `evaluation/`; every production module is below the 300-line
+soft limit. Package initializers are intentionally minimal, and loading a
+contract or YAML config does not import Torch, Lightning, SB3, or httpx.
+
+The four directive behavior classes were replaced by one Specification-style
+`DirectiveRule` table and one execution engine. The rule digest covers the
+canonical ordered descriptions plus `directive-rule-engine-v2`, rather than
+whole source-file bytes. The active PPO is a plain PyTorch module with policy
+adapters; SB3 remains a lazy historical reference and Fabric is training-only.
+
+Inference uses `ModelBackend.health()` and `generate()`. `LlamaCppBackend` is
+the retained implementation; `GemmaActioner` only builds/parses messages, while
+the shared `ActionValidator` and controller pipeline own one decode/effect check
+and deterministic fallback. Failures are recorded as stable codes rather than
+exception class names.
+
+The versioned gates passed: probe v2 checked 2,500 states with zero failures,
+PPO schema v3 used two non-wait directives with zero inapplicable selections,
+and E4B preflight v2 passed 5/5 validity, 6/6 sensitivity, and 3.538 s p95. A
+shorter compact prompt failed, so the proven wording was retained while role
+groups became dynamic. The matched 500-step run completed 3 executor tasks and
+2 Gemma tasks; Gemma required 361 effect-violation fallbacks. This is negative,
+unscored prototype evidence.
+
 This branch remains isolated from the authoritative projector-and-LoRA
 experiment:
 
@@ -134,10 +161,11 @@ prototype records strict, immutable, serializable Pydantic models. Keep runtime
 services as ordinary typed Python classes or protocols rather than placing live
 clients or simulator objects inside Pydantic models.
 
-Use a generic `Actioner[PlanT]` boundary. The demo binds it to
-`SingleJointActionPlan`; the main project may later bind a different actioner to
-a separately designed sequence-plan type without changing PPO's directive
-interface. The demo must not define a sequence type prematurely.
+Use the demo-specific `Actioner.act(ActionerRequest) -> ActionerResult`
+boundary. `ActionerResult` contains untrusted parsed destinations plus model,
+latency, and token provenance; it does not contain a trusted `JointAction` and
+does not receive the simulator wrapper. Sequence planning remains a separate
+future design and is not implied by this single-step contract.
 
 ### 3.3 Gemma output
 
@@ -199,7 +227,9 @@ Before running TA-RWARE, perform an E4B preflight:
 5. Record median and p95 decision latency.
 
 Use E4B when preflight completes without an out-of-memory error and p95 latency
-is at most 10 seconds. Otherwise use the official Gemma E2B QAT Q4 GGUF
+is at most 3.92 seconds (10% above the measured 3.56-second baseline). Otherwise
+first retain the proven prompt wording while keeping the architecture; if that
+still fails, use the official Gemma E2B QAT Q4 GGUF
 checkpoint with the same prompt and schema. Clearly record the model
 substitution.
 
@@ -301,25 +331,17 @@ Create the following prototype-only modules:
 ```text
 configs/demo/
 |-- directives-v1.yaml
-|-- directive-probe-v1.yaml
-|-- directive-ppo-v1.yaml       # Phase 3 SB3 reference
-|-- directive-ppo-v2.yaml       # Phase 3.5 Lightning refactor
-`-- directive-demo-v1.yaml
+|-- directive-probe-v2.yaml
+|-- directive-ppo-v3.yaml       # Plain-PyTorch/Fabric replacement
+`-- directive-demo-v2.yaml
 src/warehouse_ai/demo/
-|-- __init__.py        # Public exports added only when each phase passes
-|-- models.py          # Phase-grouped immutable records and configuration
-|-- directives.py      # Phase 2: directive semantics and executors
-|-- sb3.py             # Phase 3: directive-to-TA-RWARE SB3 facade
-|-- ppo.py             # Stable PPO training and frozen-inference facade
-|-- ppo_model.py       # Phase 3.5: Lightning actor-critic and train step
-|-- ppo_buffer.py      # Phase 3.5: rollout storage and minibatch views
-|-- ppo_math.py        # Phase 3.5: pure GAE and PPO-loss calculations
-|-- ppo_training.py    # Phase 3.5: collection and update orchestration
-|-- prompting.py       # Phase 4: state prompt and JSON schema
-|-- actioner.py        # Phases 4-5: protocol, then real llama.cpp client
-|-- controllers.py     # Phase 4: executor and actioner controllers
-|-- evaluation.py      # Phase 6: episode loop and matched demo
-`-- artifacts.py       # Cross-phase digests and atomic small artifacts
+|-- contracts/         # Phase-grouped immutable records and configuration
+|-- directives/        # DirectiveRule table, engine, and live probe
+|-- ppo/               # Model, adapters, math, storage, training, validation
+|-- inference/         # Backend protocol, llama.cpp, prompt, preflight
+|-- evaluation/        # Episode loop, verification, matched runner
+|-- controllers.py     # Shared action validator and strategy pipeline
+`-- artifacts.py       # Canonical JSON, digests, atomic/append-only writes
 scripts/
 |-- probe_directives.py
 |-- train_directive_ppo.py
@@ -327,7 +349,8 @@ scripts/
 `-- run_directive_demo.py
 ```
 
-Tests mirror those modules under `tests/demo/`. The existing domain models and
+All `__init__.py` files remain minimal; callers use direct module imports. Tests
+mirror these boundaries under `tests/demo/`. The existing domain models and
 `TarwareEnvWrapper` remain authoritative; do not create duplicate observation,
 mask, or joint-action types.
 
@@ -345,17 +368,16 @@ Class ownership is intentionally grouped by implementation phase:
 
 | Phase | Class group | Primary modules |
 | --- | --- | --- |
-| 1 | Shared records, YAML configs, hashing, and artifact primitives | `models.py`, `artifacts.py` |
-| 2 | Directive behavior protocol, registry, concrete executors, and semantic errors | `directives.py` |
-| 3 | Directive SB3 facade, PPO policy facade, training, validation, and checkpoint manifest | `sb3.py`, `ppo.py`, `models.py` |
-| 3.5 | Repository-owned actor-critic, rollout buffer, GAE, PPO loss, Lightning update loop, and new checkpoint | `ppo_model.py`, `ppo_buffer.py`, `ppo_math.py`, `ppo_training.py`, `ppo.py`, `models.py` |
-| 4 | Actioner-neutral request/plan contracts, prompt builder, fake-client path, and controllers | `models.py`, `prompting.py`, `actioner.py`, `controllers.py` |
-| 5 | Real `llama.cpp` health, inference, preflight, and model-selection records | `actioner.py`, `models.py` |
-| 6 | Episode records, matched runner, JSONL output, summaries, and documentation handoff | `evaluation.py`, `artifacts.py`, `models.py` |
+| 1 | Shared records, annotated field types, YAML loading, and artifact primitives | `contracts/`, `artifacts.py` |
+| 2 | Directive specifications, shared execution engine, and probe | `directives/` |
+| 3/3.5 | PPO environment, model/adapters, math, storage, collection, training, and validation | `ppo/` |
+| 4 | Actioner request/result contracts, shared validation pipeline, and fake backends | `contracts/inference.py`, `controllers.py` |
+| 5 | Backend protocol, llama.cpp transport, prompt, preflight, and provenance | `inference/` |
+| 6 | Episode records, artifact verification, matched runner, JSONL, and summaries | `evaluation/`, `artifacts.py` |
 
-Do not create placeholder implementations for later phases. It is acceptable
-for `models.py` to grow one class group per phase; each group should be marked
-with the matching phase heading in the source file.
+Do not create placeholder implementations for later phases. Contracts are
+grouped by subsystem so adding a phase does not recreate a monolithic model
+module or introduce eager framework imports.
 
 ### 7.2 Existing code reuse and non-duplication rules
 
@@ -391,7 +413,7 @@ observation. It contains references to the existing `WarehouseObservation` and
 wire model; it must be decoded immediately into the existing `JointAction` and
 must never become a second internal action type.
 
-### 7.3 Records and configuration (`models.py`)
+### 7.3 Records and configuration (`contracts/`)
 
 All models below inherit a prototype `DemoModel` configured with
 `extra="forbid"` and `frozen=True`. Paths are resolved by the scripts and are
@@ -457,21 +479,13 @@ class GemmaActionResponse(DemoModel):
     reason: str
 
 
-class SingleJointActionPlan(DemoModel):
-    state_id: str
-    directive_id: NonNegativeInt
-    action: JointAction
-    reason: str
-
-
-PlanT = TypeVar("PlanT")
-
-
-class ActionerResult(DemoModel, Generic[PlanT]):
-    plan: PlanT
+class ActionerResult(DemoModel):
+    response: GemmaActionResponse
     raw_text: str
     model_id: str
     latency_ms: NonNegativeFloat
+    prompt_tokens: NonNegativeInt | None = None
+    completion_tokens: NonNegativeInt | None = None
 
 
 class DemoDecision(DemoModel):
@@ -483,10 +497,14 @@ class DemoDecision(DemoModel):
     raw_response: str | None
     directive_effect_valid: bool
     llm_latency_ms: NonNegativeFloat | None
-    fallback_reason: str | None
+    failure_code: FailureCode | None
+    failure_detail: str | None
+    prompt_tokens: NonNegativeInt | None
+    completion_tokens: NonNegativeInt | None
 
 
 class DemoStepRecord(DemoModel):
+    schema_version: Literal[2]
     decision: DemoDecision
     rewards: tuple[float, ...]
     terminated: tuple[bool, ...]
@@ -548,7 +566,7 @@ Configuration models:
 
 ```python
 class DirectiveProbeConfig(DemoModel):
-    schema_version: Literal[1]
+    schema_version: Literal[1, 2]
     environment_id: str
     vocabulary_path: Path
     probe_seeds: tuple[int, ...] = (8000, 8001, 8002, 8003, 8004)
@@ -556,7 +574,7 @@ class DirectiveProbeConfig(DemoModel):
 
 
 class DirectivePpoConfig(DemoModel):
-    schema_version: Literal[1]
+    schema_version: Literal[1, 2, 3]
     environment_id: str
     vocabulary_path: Path
     train_seeds: tuple[int, ...]
@@ -574,14 +592,15 @@ class DirectivePpoConfig(DemoModel):
     entropy_coefficient: float = 0.01
 
 
-class LlamaCppConfig(DemoModel):
+class LlamaCppBackendConfig(DemoModel):
+    backend: Literal["llama_cpp"] = "llama_cpp"
     base_url: AnyHttpUrl
     model_id: str
     model_file_sha256: str
     model_revision: str | None = None
     model_filename: str | None = None
     quantization: str | None = None
-    llama_cpp_version: str | None = None
+    runtime_version: str | None = None
     server_command: str | None = None
     context_size: PositiveInt
     gpu_layers: NonNegativeInt
@@ -592,7 +611,7 @@ class LlamaCppConfig(DemoModel):
 
 
 class DirectiveDemoConfig(DemoModel):
-    schema_version: Literal[1]
+    schema_version: Literal[2]
     environment_id: str
     episode_seed: int = 9100
     episode_steps: PositiveInt = 500
@@ -604,8 +623,8 @@ class DirectiveDemoConfig(DemoModel):
     selected_model: Literal["e4b", "e2b"]
     preflight_report_path: Path
     output_directory: Path
-    llama_cpp: LlamaCppConfig
-    preflight_p95_limit_seconds: PositiveFloat = 10.0
+    inference: LlamaCppBackendConfig
+    preflight_p95_limit_seconds: PositiveFloat = 3.92
 
 
 ConfigT = TypeVar("ConfigT", bound=DemoModel)
@@ -624,31 +643,25 @@ two-step operator workflow: run E4B preflight; if it fails, stop that server,
 start E2B, set `selected_model: e2b`, and generate a passing E2B preflight
 report. The episode runner never swaps or launches model processes silently.
 
-### 7.4 Directive behavior registry (`directives.py`)
+### 7.4 Directive rule engine (`directives/`)
 
-Do not place Python function names or import paths in YAML. YAML contains a
-closed `behavior_key`; code owns the mapping from that key to a reviewed
-behavior object.
+YAML keeps the closed `behavior_key`; code binds each key to one immutable
+`DirectiveRule` specification containing an agent selector, destination
+selector, and effect cardinality. One `DirectiveRegistry` implements
+applicability, deterministic proposal, wrapper decode, and effect validation for
+all four commands.
 
 ```python
-class DirectiveBehavior(Protocol):
-    @property
-    def behavior_key(self) -> str: ...
-    def is_applicable(self, context: DirectiveContext) -> bool: ...
-    def propose_destinations(
-        self, context: DirectiveContext
-    ) -> tuple[int, ...]: ...
-    def validate_effect(
-        self, context: DirectiveContext, action: JointAction
-    ) -> None: ...
+@dataclass(frozen=True)
+class DirectiveRule:
+    behavior_key: str
+    agents: AgentSelector
+    destinations: DestinationSelector
+    effect: EffectCardinality
 
 
 class DirectiveRegistry:
-    def __init__(
-        self,
-        vocabulary: DirectiveVocabulary,
-        behaviors: Mapping[str, DirectiveBehavior],
-    ) -> None: ...
+    engine_version: str
     def action_mask(self, context: DirectiveContext) -> NDArray[np.bool_]: ...
     def behavior_digest(self) -> str: ...
     def execute(
@@ -665,36 +678,17 @@ class DirectiveRegistry:
     ) -> None: ...
 ```
 
-`action_mask()` returns shape `(vocabulary.size,)`. It calls each behavior's
-`is_applicable()` and asserts that the wait directive is always valid. It raises
-an invariant error if no directive is valid.
+Wait accepts exactly zero nonzero assignments. Every other directive requires
+at least one eligible legal assignment. Proposals iterate canonical agent order
+and ascending numeric destination IDs, and enforce same-role destination
+uniqueness. Effect validation deliberately permits unrelated legal assignments,
+matching the frozen observable semantics.
 
-`execute()` rejects unknown or inapplicable IDs, obtains the raw destination
-tuple, calls the existing `wrapper.decode()`, then calls `validate_effect()`.
-All training-executor output therefore passes through the same strict
-`TarwareEnvWrapper` validation as Gemma output. Do not introduce a decoder or
-validator abstraction around this existing project boundary.
-
-`behavior_digest()` hashes the ordered `(directive_id, behavior_key,
-behavior class qualified name)` bindings together with the bytes of
-`directives.py`. This is conservative: any behavior-module edit invalidates an
-old PPO manifest, but it prevents silently evaluating a checkpoint with
-different directive semantics.
-
-Use explicit exceptions so logs and tests can distinguish failures:
-
-```python
-class DirectiveError(RuntimeError): ...
-class UnknownDirectiveError(DirectiveError): ...
-class InapplicableDirectiveError(DirectiveError): ...
-class DirectiveExecutorError(DirectiveError): ...
-class DirectiveEffectError(DirectiveError): ...
-```
-
-The vocabulary spike implements one `DirectiveBehavior` class per frozen
-command. All tie-breaking inside behaviors uses canonical agent order followed
-by the lowest destination ID. Behaviors receive only `DirectiveContext`; they
-must not access `wrapper.unwrapped` or hidden simulator state.
+`behavior_digest()` hashes the explicit engine version and canonical ordered
+rule descriptors. Formatting, comments, file splits, and unrelated source edits
+do not invalidate a checkpoint. `DirectiveError` carries one stable
+`DirectiveFailure` code (`unknown`, `inapplicable`, `executor`, or `effect`)
+instead of using one exception subclass per condition.
 
 ### 7.5 Directive SB3 facade (`sb3.py`)
 
@@ -749,13 +743,13 @@ Executor failure is an invariant violation during PPO training and raises; it
 does not silently fall back. Silent training recovery would teach against a
 different transition function.
 
-### 7.6 PPO facade and training (`ppo.py`)
+### 7.6 PPO adapters and training (`ppo/`)
 
 ```python
 class DirectivePpoPolicy:
     def __init__(
         self,
-        model: MaskablePPO,
+        adapter: PolicyAdapter,
         vocabulary: DirectiveVocabulary,
         checkpoint_sha256: str,
     ) -> None: ...
@@ -791,22 +785,25 @@ def evaluate_directive_ppo(
 ) -> DirectivePpoValidationSummary: ...
 ```
 
-`predict()` verifies mask shape and at least one valid action. Under
-`torch.inference_mode()`, it obtains the masked categorical distribution and
-value estimate from the SB3 policy, chooses the highest-probability valid ID,
-and returns probabilities in directive-ID order. Equal probabilities select the
-lowest directive ID. It must not sample during validation or the demo.
+`predict()` verifies mask shape and at least one valid action. The selected
+adapter returns masked probabilities and a value estimate; the facade chooses
+the highest-probability valid ID and returns probabilities in directive-ID
+order. Equal probabilities select the lowest directive ID. It must not sample
+during validation or the demo.
 
 `train_directive_ppo()` constructs separate training and validation environment
-instances. Use `MaskablePPO("MlpPolicy", ...)` with `net_arch=dict(pi=[64],
-vf=[64])`, the config values above, `vf_coef=0.5`, and `max_grad_norm=0.5`.
-Evaluate every 5,000 training steps, retain only the best checkpoint by the
-declared validation rule, and write the manifest after hashing the saved file.
+instances and a plain `DirectivePpoModel(torch.nn.Module)`. The explicit
+collector, rollout buffer, GAE, clipped loss, and update loop use Lightning
+Fabric only for device/optimizer orchestration. Evaluate every 5,000 training
+steps, retain only the best checkpoint by the declared validation rule, and
+write the manifest after hashing the saved file. The schema-v1 SB3 path is
+loaded lazily only to reproduce the historical reference.
 
-`DirectivePpoManifest` records schema version, environment ID, vocabulary and
-behavior digests, package versions, seeds, hyperparameters, checkpoint SHA-256,
+`DirectivePpoManifest` schema v3 additionally records the behavior engine
+version and semantic rule digest. It also records package versions, seeds,
+hyperparameters, architecture/implementation identities, checkpoint SHA-256,
 validation summary, Git commit, dirty flag, and UTC timestamp. Loading fails if
-the current vocabulary or behavior digest differs.
+any current identity differs.
 
 ### 7.7 PPO model and buffer ownership refactor (Phase 3.5)
 
@@ -821,11 +818,11 @@ The refactor must create these modules and responsibilities:
 
 | Module | Required ownership |
 | --- | --- |
-| `ppo_model.py` | Actor/value networks, masked distribution, action evaluation, PPO loss integration, optimizer configuration, and train metrics |
-| `ppo_buffer.py` | Fixed-size rollout storage, lifecycle validation, finalized minibatch views, and deterministic shuffling |
-| `ppo_math.py` | Pure GAE and PPO-loss calculations with no simulator, model, logging, or filesystem dependencies |
-| `ppo_training.py` | Environment collection, rollout/update alternation, validation scheduling, checkpoint selection, and Lightning/Fabric orchestration |
-| `ppo.py` | Stable `DirectivePpoPolicy`, `train_directive_ppo()`, and `evaluate_directive_ppo()` public facade |
+| `ppo/model.py` | Plain PyTorch actor/value networks, masking, action evaluation, and loss integration |
+| `ppo/buffer.py` | Fixed-size rollout storage, lifecycle validation, finalized minibatch views, and deterministic shuffling |
+| `ppo/math.py` | Pure GAE and PPO-loss calculations with no simulator, model, logging, or filesystem dependencies |
+| `ppo/training.py` | Collection/update alternation, validation, checkpoint selection, and training-only Fabric orchestration |
+| `ppo/policy.py` | Lazy SB3/PyTorch adapters and the deterministic inference facade |
 
 Tensor-bearing training records are ordinary frozen dataclasses or named
 tuples, not Pydantic models. Pydantic remains reserved for serialized configs,
@@ -1110,41 +1107,30 @@ keys, and gives `destinations` `minItems == maxItems == len(agents)`. Integer
 bounds are `0` through `action_mask.destination_count - 1`. The prompt explains
 which vector position belongs to each agent and lists each row's legal IDs.
 
-### 7.9 Local Gemma actioner (`actioner.py`)
+### 7.9 Backend adapter and Gemma actioner (`inference/`)
 
 ```python
-PlanT_co = TypeVar("PlanT_co", covariant=True)
-
-
-class Actioner(Protocol[PlanT_co]):
-    def act(
-        self,
-        request: ActionerRequest,
-        wrapper: TarwareEnvWrapper,
-    ) -> ActionerResult[PlanT_co]: ...
-
-
-class LlamaCppActioner(Actioner[SingleJointActionPlan]):
-    def __init__(
-        self,
-        config: LlamaCppConfig,
-        prompt_builder: GemmaPromptBuilder,
-        registry: DirectiveRegistry,
-        client: httpx.Client | None = None,
-    ) -> None: ...
-
+class ModelBackend(Protocol):
     def health(self) -> ModelHealth: ...
-    def act(
-        self,
-        request: ActionerRequest,
-        wrapper: TarwareEnvWrapper,
-    ) -> ActionerResult[SingleJointActionPlan]: ...
+    def generate(self, prompt: PromptEnvelope) -> GenerationResult: ...
     def close(self) -> None: ...
+
+
+class Actioner(Protocol):
+    def act(self, request: ActionerRequest) -> ActionerResult: ...
+
+
+class GemmaActioner:
+    def __init__(
+        self, backend: ModelBackend, prompts: GemmaPromptBuilder
+    ) -> None: ...
+    def act(self, request: ActionerRequest) -> ActionerResult: ...
 ```
 
-`health()` calls `/health`, then `/v1/models`, and rejects a server whose
-advertised model does not match the configured model ID. `act()` POSTs to
-`/v1/chat/completions` with deterministic sampling and this response wrapper:
+`LlamaCppBackend.health()` calls `/health`, then `/v1/models`, and rejects a
+server whose advertised model does not match the configured model ID.
+`generate()` posts to `/v1/chat/completions` with deterministic sampling and
+this response wrapper:
 
 ```python
 {
@@ -1157,37 +1143,16 @@ advertised model does not match the configured model ID. `act()` POSTs to
 }
 ```
 
-It reads only `choices[0].message.content`, validates `GemmaActionResponse`,
-verifies vector length, calls `wrapper.decode()`, calls
-`registry.validate_effect()`, and returns a `SingleJointActionPlan` tied to the
-request's `state_id`. The preflight must confirm this request shape against the
-pinned `llama.cpp` version before an episode can run.
+The backend parses only the HTTP envelope and returns text plus provenance.
+`GemmaActioner` validates only `GemmaActionResponse`; it never receives a
+wrapper or directive registry. `ActionValidator` performs the one stale-state,
+vector-length, wrapper-decode, canonical-order, and directive-effect pass.
 
-Define `ActionerError` subclasses for health, timeout, HTTP, empty response,
-schema, decoding, stale-state, and directive-effect failures. Do not retry inside
-the client. Accept an injected `httpx.Client` so unit tests never require a real
-server.
-
-```python
-class ActionerError(RuntimeError): ...
-class ActionerHealthError(ActionerError): ...
-class ActionerTimeoutError(ActionerError): ...
-class ActionerHttpError(ActionerError): ...
-class EmptyActionerResponseError(ActionerError): ...
-class ActionerSchemaError(ActionerError): ...
-class ActionerDecodeError(ActionerError): ...
-class ActionerEffectError(ActionerError): ...
-class StaleActionPlanError(ActionerError): ...
-```
-
-Wrap Pydantic response errors, `InvalidJointActionError`, and
-`DirectiveEffectError` in the corresponding actioner error while retaining the
-original exception as `__cause__`. `StaleActionPlanError` is raised by the
-controller after it recaptures the live context.
-
-The generic `Actioner[PlanT]` is the only future-facing seam. A future sequence
-implementation must introduce its own plan model, schema, validation, and
-execution policy; it must not change `DirectivePrediction`.
+`InferenceError`, `ActionerError`, and `DecisionFailure` each carry a stable
+`FailureCode`: `health`, `timeout`, `transport`, `malformed_response`,
+`invalid_action`, `effect_violation`, `stale_state`, or `executor_failure`.
+There is no retry inside the adapter. An injected `httpx.Client` keeps envelope
+tests independent of a real server.
 
 ### 7.10 Controllers (`controllers.py`)
 
@@ -1212,7 +1177,7 @@ class DirectiveGemmaController:
         self,
         policy: DirectivePpoPolicy,
         registry: DirectiveRegistry,
-        actioner: Actioner[SingleJointActionPlan],
+        actioner: Actioner,
     ) -> None: ...
     def choose_action(self, wrapper: TarwareEnvWrapper) -> DemoDecision: ...
 ```
@@ -1220,11 +1185,10 @@ class DirectiveGemmaController:
 Both controllers capture context, compute the same directive mask, and obtain a
 deterministic prediction from the same frozen PPO policy.
 
-The executor controller always calls `registry.execute()`. The Gemma controller
-bypasses the LLM only when the selected directive is the wait directive and
-`wrapper.no_op()` satisfies its effect rule. Otherwise it calls the actioner,
-recaptures context after the response, and accepts the plan only if `state_id`
-is unchanged. Any `ActionerError` invokes `registry.execute()` for the same
+One `DecisionPipeline` owns prediction and fallback; executor and Gemma are
+replaceable `ActionStrategy` implementations. The Gemma strategy bypasses the
+LLM for wait and otherwise sends untrusted destinations through the shared
+validator. Any structured failure invokes `registry.execute()` for the same
 selected directive. If that fallback unexpectedly fails, apply
 `wrapper.no_op()`, set `source="automatic_no_op"`, and record an invariant-level
 failure; do not terminate the live demo.
@@ -1232,7 +1196,7 @@ failure; do not terminate the live demo.
 Neither controller calls `wrapper.project()`. The returned `DemoDecision.action`
 is the exact action subsequently sent to `wrapper.step()`.
 
-### 7.11 Episode runner and artifacts (`evaluation.py`, `artifacts.py`)
+### 7.11 Episode runner and artifacts (`evaluation/`, `artifacts.py`)
 
 ```python
 class DirectivePpoValidationSummary(DemoModel):
@@ -1340,11 +1304,10 @@ checkpoints remain ignored.
 Each script returns exit code zero only when its stated artifact is complete:
 
 ```text
-python scripts/probe_directives.py --config configs/demo/directive-probe-v1.yaml
-python scripts/train_directive_ppo.py --config configs/demo/directive-ppo-v1.yaml
-python scripts/train_directive_ppo.py --config configs/demo/directive-ppo-v2.yaml
-python scripts/probe_gemma_actioner.py --config configs/demo/directive-demo-v1.yaml
-python scripts/run_directive_demo.py --config configs/demo/directive-demo-v1.yaml
+python scripts/probe_directives.py --config configs/demo/directive-probe-v2.yaml --output results/summaries/directive-probe-report-v2.json
+python scripts/train_directive_ppo.py --config configs/demo/directive-ppo-v3.yaml --output results/demo/directive-ppo-v3
+python scripts/probe_gemma_actioner.py --config configs/demo/directive-demo-v2.yaml
+python scripts/run_directive_demo.py --config configs/demo/directive-demo-v2.yaml
 ```
 
 - `probe_directives.py` exercises applicability, executors, and action effects
@@ -1352,8 +1315,8 @@ python scripts/run_directive_demo.py --config configs/demo/directive-demo-v1.yam
   not train.
 - `train_directive_ppo.py` validates the vocabulary spike output, trains,
   evaluates, and writes a checkpoint manifest. The v1 config reproduces the
-  Phase 3 SB3 reference; the v2 config is the required Phase 3.5
-  Lightning-backed implementation used by later phases.
+  Phase 3 SB3 reference; the v3 config is the plain-PyTorch/Fabric replacement
+  used by the refactored demo.
 - `probe_gemma_actioner.py` performs E4B preflight and directive sensitivity;
   it exits with a distinct documented code indicating that E2B should be used.
 - `run_directive_demo.py` requires a passing actioner preflight artifact for the
@@ -1363,6 +1326,10 @@ python scripts/run_directive_demo.py --config configs/demo/directive-demo-v1.yam
 
 Implement the following class groups in order. Each phase should be one focused
 change that leaves the repository runnable and tested.
+
+The phase bullets below preserve the original implementation history. For the
+current paths, contracts, schema versions, and runtime boundaries, Sections 0
+and 7.1-7.12 are authoritative; the refactor did not rewrite old phase evidence.
 
 #### Phase 1: Shared contracts and configuration
 
@@ -1512,13 +1479,13 @@ inapplicable selections. Phase 4 must consume only this Phase 3.5 checkpoint.
 
 Create:
 
-- In the Phase 4 group of `models.py`: `ActionerRequest`,
-  `GemmaActionResponse`, `SingleJointActionPlan`, generic `ActionerResult`,
-  `DemoDecision`, and `DemoStepRecord`.
-- In `prompting.py`: `ChatMessage`, `PromptEnvelope`, and
+- In `contracts/inference.py` and `contracts/evaluation.py`: `ActionerRequest`,
+  `GemmaActionResponse`, non-generic `ActionerResult`, `DemoDecision`, and
+  `DemoStepRecord`.
+- In `inference/prompting.py`: `ChatMessage`, `PromptEnvelope`, and
   `GemmaPromptBuilder`.
-- In `actioner.py`: generic `Actioner` protocol and the `ActionerError`
-  hierarchy, but not the concrete `LlamaCppActioner` yet.
+- In `inference/actioner.py`: the demo-specific `Actioner` protocol and
+  structured `ActionerError`.
 - In `controllers.py`: `DemoController`,
   `DirectiveExecutorController`, and `DirectiveGemmaController`.
 - In tests only: `FakeActioner`, implemented against the public `Actioner`
@@ -1535,8 +1502,8 @@ Deliverables:
 - Valid fake plans reach the wrapper unchanged.
 - Malformed, invalid, effect-violating, timed-out, and stale fake plans use the
   same directive's deterministic executor fallback.
-- The generic `Actioner[SingleJointActionPlan]` seam works without defining any
-  future sequence-plan class.
+- The demo-specific actioner seam works without defining any future
+  sequence-plan class or trusting model output as a `JointAction`.
 
 Gate: short fake-actioner episodes complete for success and every fallback
 scenario with exact decision records.
@@ -1545,9 +1512,9 @@ scenario with exact decision records.
 
 Create:
 
-- In the Phase 5 group of `models.py`: `ModelHealth` and
+- In `contracts/inference.py`: `ModelHealth` and
   `GemmaPreflightReport`.
-- In `actioner.py`: `LlamaCppActioner` using an injected or owned
+- In `inference/llama_cpp.py`: `LlamaCppBackend` using an injected or owned
   `httpx.Client`.
 - `probe_gemma_actioner.py` as the only script that decides whether a configured
   server passes preflight.

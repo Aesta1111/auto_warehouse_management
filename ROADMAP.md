@@ -55,7 +55,7 @@ complete, and its seeds remain excluded from later scientific evaluation.
 - [x] Complete the Phase 4 fake-actioner success and fallback episode gate.
 - [x] Implement the Phase 6 matched episode runner, flushed JSONL records,
   atomic summaries, and frozen-artifact verification.
-- [ ] Run and record the live 500-step executor/Gemma matched demonstration
+- [x] Run and record the live 500-step executor/Gemma matched demonstration
   gate; this remains prototype evidence and does not score the main project.
 
 Phase 2 of the prototype passed on 2026-08-13: 2,500 states checked across
@@ -88,9 +88,11 @@ pinned E4B Q4_0 GGUF and CUDA-enabled llama.cpp server: health/model identity,
 [the Phase 5 research log entry](docs/research-log/2026-08-22-directive-phase5-actioner.md).
 
 Directive-demo Phase 6's runner implementation was completed on 2026-08-22.
-The live matched 500-step gate is intentionally still pending; the
-implementation and short evaluation tests are recorded in [the Phase 6
-research log entry](docs/research-log/2026-08-22-directive-phase6-evaluation.md).
+The versioned matched 500-step gate then completed after the architecture
+refactor. Executor/Gemma completed 3/2 tasks; Gemma recorded 361 structured
+effect violations and deterministic fallbacks. This is negative prototype
+evidence, not a main-experiment phase result. See [the refactor and matched-run
+entry](docs/research-log/2026-08-22-directive-demo-refactor-v2.md).
 
 ## Phase 2: runnable project foundation
 

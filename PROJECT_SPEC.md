@@ -490,22 +490,32 @@ tokens, change the main primary metric, consume held-out research seeds, or
 complete any main-project phase gate. Its Phase 2 vocabulary is frozen as four
 controller-visible commands: `wait`, `service-requested-shelf`,
 `deliver-carried-shelf`, and `reposition-idle-agent`. Deterministic executors
-and effect validators are implemented in `warehouse_ai.demo.directives`; the
-live probe evidence is recorded in the research log. The prototype's Phase 3
+and effect validators are implemented by the declarative rule table and shared
+engine in `warehouse_ai.demo.directives`; the live probe evidence is recorded
+in the research log. The prototype's Phase 3
 directive PPO now uses a one-dimensional masked `Discrete(4)` action space and
 the existing strict `TarwareEnvWrapper` for deterministic training execution.
 Phase 3.5 preserved that MDP and retrained with repository-owned model,
 rollout-buffer, GAE, PPO-loss, collection, and explicit Lightning Fabric
-optimization components. Its schema-v2 checkpoint passed deterministic reload
-and validation on 2026-08-18. The Phase 3 SB3 checkpoint remains an immutable
-reference artifact; it was not converted or overwritten.
+optimization components. The 2026-08-22 architecture refactor moved these into
+`demo/ppo`, made the active model a plain `torch.nn.Module`, limited Fabric to
+training composition, and retained SB3 behind a lazy reference adapter. Its
+schema-v3 replacement checkpoint passed the original seed and coverage gates;
+the schema-v1/v2 checkpoints remain immutable reference artifacts.
 Phase 6 adds a matched, unscored runner that verifies the vocabulary, behavior,
 probe, preflight, and PPO checkpoint digests before resetting TA-RWARE, then
 runs one headless deterministic-executor episode and one fresh rendered Gemma
 actioner episode with the same seed and settings. It writes flushed per-step
 JSONL and atomic small summaries under an ignored run directory. The live
-500-step demonstration gate is evidence for this prototype only and does not
-advance the main research phases or claim an improvement.
+500-step demonstration completed on 2026-08-22. Gemma completed two tasks versus
+the executor's three and required 361 deterministic fallbacks for directive
+effect violations. This negative result is evidence for this prototype only and
+does not advance the main research phases or claim an improvement.
+The inference boundary remains a replaceable `ModelBackend`; the implementation
+continues to use the pinned llama.cpp E4B GGUF runtime. A compact prompt failed
+the preflight, so the proven wording was retained with dynamically derived role
+groups. The passing rerun achieved 5/5 validity, 6/6 sensitivity, and 3.538 s
+p95 against the 3.92 s limit. No alternate inference dependency was added.
 Both checkpoints and manifests are prototype-only artifacts and cannot become
 the PPO checkpoint for the main scientific experiment. Future action sequences
 remain an unresolved main-project extension.

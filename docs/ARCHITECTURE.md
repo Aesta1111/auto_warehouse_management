@@ -199,14 +199,32 @@ the lowest canonical agent's choice, changes later duplicates to no-op, and logs
 each repair. Strict controller decisions continue through rejection-based
 validation.
 
-The isolated directive-demo exception has a separate schema-v2 PPO backend. Its
-public facade preserves Phase 3's SB3 reference path, while Phase 3.5 owns four
-modules with one-way responsibilities: `ppo_math.py` contains pure GAE and loss
-arithmetic, `ppo_buffer.py` owns fixed rollout storage, `ppo_model.py` owns the
-masked actor/value network, and `ppo_training.py` owns simulator collection and
-the explicit Lightning Fabric optimization loop. The v2 path does not use SB3
-training internals. This prototype boundary does not replace the main project's
-PPO architecture decision.
+The isolated directive-demo exception has a separate schema-v3 PPO backend.
+`demo/ppo/policy.py` selects a lazy policy adapter: the active checkpoint uses a
+plain PyTorch model, while the preserved schema-v1 SB3 reference imports SB3
+only when requested. Rollout math, storage, collection, training, validation,
+and model structure have one-way module boundaries under `demo/ppo/`. Lightning
+Fabric is imported only inside training orchestration. This prototype boundary
+does not replace the main project's PPO architecture decision.
+
+The rest of the demo follows the same small-boundary layout:
+
+```text
+demo/
+|-- contracts/       # Strict records grouped by subsystem
+|-- directives/      # DirectiveRule specifications and one shared engine
+|-- ppo/             # Model, adapters, rollout storage/math, training, validation
+|-- inference/       # ModelBackend, llama.cpp adapter, prompt, preflight
+|-- evaluation/      # Episode loop, artifact verification, matched runner
+|-- controllers.py   # Shared validator/pipeline and action-source strategies
+`-- artifacts.py     # Canonical JSON, hashes, atomic and append-only writes
+```
+
+All package initializers are minimal. Importing contracts or configuration must
+not import Torch, Lightning, SB3, or httpx. `GemmaActioner` parses untrusted
+messages but never receives a simulator wrapper. `ActionValidator` performs the
+single stale-state, vector, wrapper-decode, canonical-order, and directive-effect
+validation pass before one controller pipeline chooses deterministic fallback.
 
 ### Rollout label generator
 
