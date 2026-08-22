@@ -1,288 +1,301 @@
-"""Frozen-directive controllers for the Phase 4 orchestration seam."""
+"""One decision pipeline with replaceable action-source strategies."""
 
 from __future__ import annotations
 
-from typing import Any, Literal, Protocol
+from dataclasses import dataclass
+from typing import Literal, Protocol
 
-from warehouse_ai.demo.actioner import (
-    Actioner,
-    ActionerDecodeError,
-    ActionerEffectError,
-    ActionerError,
-    ActionerSchemaError,
-    StaleActionPlanError,
-)
-from warehouse_ai.demo.directives import (
-    DirectiveError,
-    DirectiveRegistry,
-)
-from warehouse_ai.demo.models import (
-    ActionerRequest,
-    ActionerResult,
-    DemoDecision,
+from warehouse_ai.demo.contracts.directives import (
     DirectiveContext,
     DirectivePrediction,
-    SingleJointActionPlan,
 )
-from warehouse_ai.demo.ppo import DirectivePpoPolicy
+from warehouse_ai.demo.contracts.evaluation import DemoDecision
+from warehouse_ai.demo.contracts.inference import (
+    ActionerRequest,
+    ActionerResult,
+    FailureCode,
+)
+from warehouse_ai.demo.directives import DirectiveError, DirectiveRegistry
+from warehouse_ai.demo.inference.actioner import Actioner, ActionerError
+from warehouse_ai.demo.ppo.policy import DirectivePpoPolicy
+from warehouse_ai.domain import JointAction
 from warehouse_ai.env import InvalidJointActionError, TarwareEnvWrapper
 
 
 class DemoController(Protocol):
-    """Common action-selection operation used by the future episode runner."""
-
     @property
     def controller_name(self) -> Literal["ppo_executor", "ppo_gemma"]: ...
 
     def choose_action(self, wrapper: TarwareEnvWrapper) -> DemoDecision: ...
 
 
-def _validate_policy_registry(
-    policy: DirectivePpoPolicy, registry: DirectiveRegistry
-) -> None:
-    if policy.vocabulary.digest() != registry.vocabulary.digest():
-        raise ValueError("policy vocabulary does not match directive registry")
+class DecisionFailure(RuntimeError):
+    """A controller failure that is safe to expose in an artifact."""
+
+    def __init__(
+        self,
+        code: FailureCode,
+        message: str,
+        result: ActionerResult | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.result = result
 
 
-def _predict(
-    policy: DirectivePpoPolicy,
-    registry: DirectiveRegistry,
-    wrapper: TarwareEnvWrapper,
-) -> tuple[DirectiveContext, DirectivePrediction]:
-    """Capture one context and make one deterministic masked PPO prediction."""
-    context = DirectiveContext.capture(wrapper)
-    directive_mask = registry.action_mask(context)
-    prediction = policy.predict(context, directive_mask)
-    if prediction.state_id != context.state_id:
-        raise RuntimeError("PPO prediction state does not match its request context")
-    directive_id = prediction.directive.directive_id
-    if directive_id < 0 or directive_id >= registry.vocabulary.size:
-        raise RuntimeError("PPO selected an unknown directive")
-    if not bool(directive_mask[directive_id]):
-        raise RuntimeError("PPO selected an inapplicable directive")
-    return context, prediction
+class ActionValidator:
+    """Convert one untrusted destination vector into one trusted action."""
 
-
-def _executor_decision(
-    context: DirectiveContext,
-    prediction: DirectivePrediction,
-    registry: DirectiveRegistry,
-    wrapper: TarwareEnvWrapper,
-) -> DemoDecision:
-    action = registry.execute(prediction.directive.directive_id, context, wrapper)
-    return DemoDecision(
-        prediction=prediction,
-        action=action,
-        reason=prediction.directive.description,
-        source="directive_executor",
-        model_id=None,
-        raw_response=None,
-        directive_effect_valid=True,
-        llm_latency_ms=None,
-        fallback_reason=None,
-    )
-
-
-def _error_text(error: BaseException) -> str:
-    detail = str(error).strip()
-    return type(error).__name__ if not detail else f"{type(error).__name__}: {detail}"
-
-
-def _fallback_decision(
-    *,
-    prediction: DirectivePrediction,
-    registry: DirectiveRegistry,
-    wrapper: TarwareEnvWrapper,
-    error: BaseException,
-    actioner_result: ActionerResult[Any] | None,
-) -> DemoDecision:
-    """Use the selected directive's executor, retaining actioner failure data."""
-    raw_response = None if actioner_result is None else actioner_result.raw_text
-    model_id = None if actioner_result is None else actioner_result.model_id
-    latency = None if actioner_result is None else actioner_result.latency_ms
-    fallback_reason = _error_text(error)
-
-    try:
-        live_context = DirectiveContext.capture(wrapper)
-        action = registry.execute(
-            prediction.directive.directive_id, live_context, wrapper
-        )
-    except Exception as fallback_error:
-        fallback_reason = (
-            f"{fallback_reason}; deterministic executor failed: "
-            f"{_error_text(fallback_error)}"
-        )
-        try:
-            action = wrapper.no_op()
-        except Exception as no_op_error:
-            raise RuntimeError(
-                "directive fallback and automatic no-op both failed"
-            ) from no_op_error
-        return DemoDecision(
-            prediction=prediction,
-            action=action,
-            reason="Automatic no-op after actioner and directive fallback failure.",
-            source="automatic_no_op",
-            model_id=model_id,
-            raw_response=raw_response,
-            directive_effect_valid=False,
-            llm_latency_ms=latency,
-            fallback_reason=fallback_reason,
-        )
-
-    return DemoDecision(
-        prediction=prediction,
-        action=action,
-        reason=prediction.directive.description,
-        source="directive_executor",
-        model_id=model_id,
-        raw_response=raw_response,
-        directive_effect_valid=False,
-        llm_latency_ms=latency,
-        fallback_reason=fallback_reason,
-    )
-
-
-class DirectiveExecutorController:
-    """Apply the selected frozen directive through its deterministic executor."""
-
-    def __init__(self, policy: DirectivePpoPolicy, registry: DirectiveRegistry) -> None:
-        _validate_policy_registry(policy, registry)
-        self.policy = policy
+    def __init__(self, registry: DirectiveRegistry) -> None:
         self.registry = registry
 
-    @property
-    def controller_name(self) -> Literal["ppo_executor"]:
-        return "ppo_executor"
+    def validate(
+        self,
+        request: ActionerRequest,
+        result: ActionerResult,
+        wrapper: TarwareEnvWrapper,
+    ) -> JointAction:
+        current = DirectiveContext.capture(wrapper)
+        if current.state_id != request.context.state_id:
+            raise DecisionFailure(
+                FailureCode.STALE_STATE,
+                "warehouse state changed while inference was running",
+                result,
+            )
 
-    def choose_action(self, wrapper: TarwareEnvWrapper) -> DemoDecision:
-        context, prediction = _predict(self.policy, self.registry, wrapper)
-        return _executor_decision(context, prediction, self.registry, wrapper)
+        destinations = result.response.destinations
+        expected_count = len(current.observation.agents)
+        if len(destinations) != expected_count:
+            raise DecisionFailure(
+                FailureCode.INVALID_ACTION,
+                f"model returned {len(destinations)} destinations; expected {expected_count}",
+                result,
+            )
+        try:
+            action = wrapper.decode(destinations)
+        except (InvalidJointActionError, TypeError, ValueError) as exc:
+            raise DecisionFailure(
+                FailureCode.INVALID_ACTION,
+                "model destinations failed strict wrapper decoding",
+                result,
+            ) from exc
+
+        expected_agents = tuple(agent.agent_id for agent in current.observation.agents)
+        actual_agents = tuple(item.agent_id for item in action.actions)
+        if actual_agents != expected_agents:
+            raise DecisionFailure(
+                FailureCode.INVALID_ACTION,
+                "decoded action is not in canonical agent order",
+                result,
+            )
+        try:
+            self.registry.validate_effect(
+                request.prediction.directive.directive_id,
+                current,
+                action,
+            )
+        except DirectiveError as exc:
+            raise DecisionFailure(
+                FailureCode.EFFECT_VIOLATION,
+                "model action violates the selected directive effect",
+                result,
+            ) from exc
+        return action
 
 
-class DirectiveGemmaController:
-    """Delegate one selected directive to an actioner with strict fallback."""
+@dataclass(frozen=True)
+class StrategyDecision:
+    action: JointAction
+    reason: str
+    source: Literal["gemma", "directive_executor"]
+    result: ActionerResult | None = None
+
+
+class ActionStrategy(Protocol):
+    def decide(
+        self,
+        context: DirectiveContext,
+        prediction: DirectivePrediction,
+        wrapper: TarwareEnvWrapper,
+    ) -> StrategyDecision: ...
+
+
+class ExecutorStrategy:
+    def __init__(self, registry: DirectiveRegistry) -> None:
+        self.registry = registry
+
+    def decide(
+        self,
+        context: DirectiveContext,
+        prediction: DirectivePrediction,
+        wrapper: TarwareEnvWrapper,
+    ) -> StrategyDecision:
+        try:
+            action = self.registry.execute(
+                prediction.directive.directive_id, context, wrapper
+            )
+        except Exception as exc:
+            raise DecisionFailure(
+                FailureCode.EXECUTOR_FAILURE,
+                f"directive executor failed: {exc}",
+            ) from exc
+        return StrategyDecision(
+            action=action,
+            reason=prediction.directive.description,
+            source="directive_executor",
+        )
+
+
+class GemmaStrategy:
+    def __init__(self, registry: DirectiveRegistry, actioner: Actioner) -> None:
+        self.registry = registry
+        self.actioner = actioner
+        self.validator = ActionValidator(registry)
+        self.executor = ExecutorStrategy(registry)
+
+    def decide(
+        self,
+        context: DirectiveContext,
+        prediction: DirectivePrediction,
+        wrapper: TarwareEnvWrapper,
+    ) -> StrategyDecision:
+        if (
+            prediction.directive.directive_id
+            == self.registry.vocabulary.wait_directive_id
+        ):
+            return self.executor.decide(context, prediction, wrapper)
+
+        request = ActionerRequest(context=context, prediction=prediction)
+        try:
+            result = self.actioner.act(request)
+        except ActionerError as exc:
+            raise DecisionFailure(exc.code, str(exc)) from exc
+        except Exception as exc:
+            raise DecisionFailure(
+                FailureCode.TRANSPORT,
+                f"unexpected actioner failure: {exc}",
+            ) from exc
+        action = self.validator.validate(request, result, wrapper)
+        return StrategyDecision(
+            action=action,
+            reason=result.response.reason,
+            source="gemma",
+            result=result,
+        )
+
+
+class DecisionPipeline:
+    """Own policy prediction, action selection, and deterministic fallback."""
 
     def __init__(
         self,
         policy: DirectivePpoPolicy,
         registry: DirectiveRegistry,
-        actioner: Actioner[SingleJointActionPlan],
+        strategy: ActionStrategy,
     ) -> None:
-        _validate_policy_registry(policy, registry)
+        if policy.vocabulary.digest() != registry.vocabulary.digest():
+            raise ValueError("policy vocabulary does not match directive registry")
         self.policy = policy
         self.registry = registry
-        self.actioner = actioner
-
-    @property
-    def controller_name(self) -> Literal["ppo_gemma"]:
-        return "ppo_gemma"
+        self.strategy = strategy
 
     def choose_action(self, wrapper: TarwareEnvWrapper) -> DemoDecision:
-        context, prediction = _predict(self.policy, self.registry, wrapper)
-        directive_id = prediction.directive.directive_id
+        context = DirectiveContext.capture(wrapper)
+        mask = self.registry.action_mask(context)
+        prediction = self.policy.predict(context, mask)
+        self._validate_prediction(context, prediction, mask)
+        try:
+            selected = self.strategy.decide(context, prediction, wrapper)
+        except DecisionFailure as failure:
+            return self._fallback(prediction, wrapper, failure)
+        return self._build_decision(prediction, selected)
 
-        if directive_id == self.registry.vocabulary.wait_directive_id:
+    @staticmethod
+    def _validate_prediction(context, prediction, mask) -> None:
+        if prediction.state_id != context.state_id:
+            raise RuntimeError("PPO prediction state does not match its context")
+        directive_id = prediction.directive.directive_id
+        if (
+            directive_id < 0
+            or directive_id >= len(mask)
+            or not bool(mask[directive_id])
+        ):
+            raise RuntimeError("PPO selected an unknown or inapplicable directive")
+
+    @staticmethod
+    def _build_decision(
+        prediction: DirectivePrediction, selected: StrategyDecision
+    ) -> DemoDecision:
+        result = selected.result
+        return DemoDecision(
+            prediction=prediction,
+            action=selected.action,
+            reason=selected.reason,
+            source=selected.source,
+            model_id=None if result is None else result.model_id,
+            raw_response=None if result is None else result.raw_text,
+            directive_effect_valid=True,
+            llm_latency_ms=None if result is None else result.latency_ms,
+            prompt_tokens=None if result is None else result.prompt_tokens,
+            completion_tokens=None if result is None else result.completion_tokens,
+        )
+
+    def _fallback(
+        self,
+        prediction: DirectivePrediction,
+        wrapper: TarwareEnvWrapper,
+        failure: DecisionFailure,
+    ) -> DemoDecision:
+        code = failure.code
+        detail = str(failure)
+        source: Literal["directive_executor", "automatic_no_op"]
+        try:
+            live_context = DirectiveContext.capture(wrapper)
+            action = self.registry.execute(
+                prediction.directive.directive_id, live_context, wrapper
+            )
+            source = "directive_executor"
+        except Exception as exc:
+            code = FailureCode.EXECUTOR_FAILURE
+            detail = f"{detail}; deterministic executor failed: {exc}"
             try:
                 action = wrapper.no_op()
-                self.registry.validate_effect(directive_id, context, action)
-            except Exception as error:
-                return _fallback_decision(
-                    prediction=prediction,
-                    registry=self.registry,
-                    wrapper=wrapper,
-                    error=error,
-                    actioner_result=None,
-                )
-            return DemoDecision(
-                prediction=prediction,
-                action=action,
-                reason=prediction.directive.description,
-                source="directive_executor",
-                model_id=None,
-                raw_response=None,
-                directive_effect_valid=True,
-                llm_latency_ms=None,
-                fallback_reason=None,
-            )
+            except Exception as no_op_error:
+                raise RuntimeError(
+                    "directive fallback and automatic no-op both failed"
+                ) from no_op_error
+            source = "automatic_no_op"
+        result = failure.result
+        return DemoDecision(
+            prediction=prediction,
+            action=action,
+            reason=prediction.directive.description,
+            source=source,
+            model_id=None if result is None else result.model_id,
+            raw_response=None if result is None else result.raw_text,
+            directive_effect_valid=False,
+            llm_latency_ms=None if result is None else result.latency_ms,
+            failure_code=code,
+            failure_detail=detail,
+            prompt_tokens=None if result is None else result.prompt_tokens,
+            completion_tokens=None if result is None else result.completion_tokens,
+        )
 
-        request = ActionerRequest(context=context, prediction=prediction)
-        actioner_result: ActionerResult[Any] | None = None
-        try:
-            actioner_result = self.actioner.act(request, wrapper)
-            if not isinstance(actioner_result, ActionerResult):
-                raise ActionerSchemaError("actioner did not return an ActionerResult")
-            if not isinstance(actioner_result.plan, SingleJointActionPlan):
-                raise ActionerSchemaError(
-                    "actioner result did not contain a SingleJointActionPlan"
-                )
-            plan = actioner_result.plan
-            if plan.state_id != context.state_id:
-                raise StaleActionPlanError(
-                    "actioner plan state differs from request state"
-                )
-            if plan.directive_id != directive_id:
-                raise ActionerEffectError(
-                    "actioner plan directive differs from the selected PPO directive"
-                )
 
-            current_context = DirectiveContext.capture(wrapper)
-            if current_context.state_id != context.state_id:
-                raise StaleActionPlanError(
-                    "warehouse state changed while the actioner was responding"
-                )
+class DirectiveExecutorController(DecisionPipeline):
+    controller_name: Literal["ppo_executor"] = "ppo_executor"
 
-            destinations = tuple(
-                int(item.destination_id) for item in plan.action.actions
-            )
-            try:
-                decoded = wrapper.decode(destinations)
-            except (InvalidJointActionError, ValueError, TypeError) as error:
-                raise ActionerDecodeError(
-                    "actioner plan did not pass strict wrapper decoding"
-                ) from error
-            if decoded != plan.action:
-                raise ActionerDecodeError(
-                    "actioner plan action is not in canonical agent order"
-                )
-            try:
-                self.registry.validate_effect(
-                    directive_id, current_context, plan.action
-                )
-            except DirectiveError as error:
-                raise ActionerEffectError(
-                    "actioner plan violates the selected directive effect"
-                ) from error
+    def __init__(self, policy: DirectivePpoPolicy, registry: DirectiveRegistry) -> None:
+        super().__init__(policy, registry, ExecutorStrategy(registry))
 
-            return DemoDecision(
-                prediction=prediction,
-                action=plan.action,
-                reason=plan.reason,
-                source="gemma",
-                model_id=actioner_result.model_id,
-                raw_response=actioner_result.raw_text,
-                directive_effect_valid=True,
-                llm_latency_ms=actioner_result.latency_ms,
-                fallback_reason=None,
-            )
-        except ActionerError as error:
-            return _fallback_decision(
-                prediction=prediction,
-                registry=self.registry,
-                wrapper=wrapper,
-                error=error,
-                actioner_result=actioner_result,
-            )
-        except Exception as error:
-            # A third-party actioner is outside this module's control. Keep an
-            # unexpected fake/client failure visible while preserving the live
-            # demo's deterministic fallback contract.
-            wrapped = ActionerError("unexpected actioner failure")
-            wrapped.__cause__ = error
-            return _fallback_decision(
-                prediction=prediction,
-                registry=self.registry,
-                wrapper=wrapper,
-                error=wrapped,
-                actioner_result=actioner_result,
-            )
+
+class DirectiveGemmaController(DecisionPipeline):
+    controller_name: Literal["ppo_gemma"] = "ppo_gemma"
+
+    def __init__(
+        self,
+        policy: DirectivePpoPolicy,
+        registry: DirectiveRegistry,
+        actioner: Actioner,
+    ) -> None:
+        super().__init__(policy, registry, GemmaStrategy(registry, actioner))
