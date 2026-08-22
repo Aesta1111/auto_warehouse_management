@@ -8,6 +8,7 @@ import os
 import subprocess
 import tempfile
 from collections.abc import Mapping
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -110,3 +111,42 @@ def write_json_atomic(path: Path, model: BaseModel) -> None:
                 Path(temporary_name).unlink()
             except FileNotFoundError:
                 pass
+
+
+def append_jsonl(path: Path, model: BaseModel) -> None:
+    """Append one canonical Pydantic record and flush it immediately.
+
+    Decision logs are intentionally append-only. Opening the file for each
+    record keeps the helper usable by an episode loop without holding a file
+    descriptor for the whole run, and ``fsync`` makes a completed decision
+    visible even if a later simulator or model call fails.
+    """
+    payload = canonical_json_bytes(model) + b"\n"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("ab") as handle:
+        handle.write(payload)
+        handle.flush()
+        os.fsync(handle.fileno())
+
+
+def create_run_directory(
+    base_directory: Path,
+    *,
+    controller_name: str,
+    created_at_utc: datetime | None = None,
+    git_commit: str,
+) -> Path:
+    """Create a unique, machine-sortable directory for one demo run."""
+    if not controller_name or not controller_name.strip():
+        raise ValueError("controller_name must not be blank")
+    if len(git_commit) < 8 or any(
+        character not in "0123456789abcdef" for character in git_commit.lower()
+    ):
+        raise ValueError("git_commit must contain a hexadecimal commit identifier")
+
+    timestamp = (created_at_utc or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    timestamp_text = timestamp.strftime("%Y%m%dT%H%M%S%fZ")
+    run_id = f"{controller_name.strip()}-{timestamp_text}-{git_commit[:8]}"
+    run_directory = base_directory / run_id
+    run_directory.mkdir(parents=True, exist_ok=False)
+    return run_directory

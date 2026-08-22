@@ -499,6 +499,13 @@ rollout-buffer, GAE, PPO-loss, collection, and explicit Lightning Fabric
 optimization components. Its schema-v2 checkpoint passed deterministic reload
 and validation on 2026-08-18. The Phase 3 SB3 checkpoint remains an immutable
 reference artifact; it was not converted or overwritten.
+Phase 6 adds a matched, unscored runner that verifies the vocabulary, behavior,
+probe, preflight, and PPO checkpoint digests before resetting TA-RWARE, then
+runs one headless deterministic-executor episode and one fresh rendered Gemma
+actioner episode with the same seed and settings. It writes flushed per-step
+JSONL and atomic small summaries under an ignored run directory. The live
+500-step demonstration gate is evidence for this prototype only and does not
+advance the main research phases or claim an improvement.
 Both checkpoints and manifests are prototype-only artifacts and cannot become
 the PPO checkpoint for the main scientific experiment. Future action sequences
 remain an unresolved main-project extension.

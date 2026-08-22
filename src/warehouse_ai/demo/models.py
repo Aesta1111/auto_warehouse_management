@@ -657,6 +657,69 @@ class GemmaPreflightReport(DemoModel):
         return self
 
 
+class EpisodeResult(DemoModel):
+    """Metrics collected from one matched prototype episode."""
+
+    controller: Literal["ppo_executor", "ppo_gemma"]
+    seed: int
+    steps: PositiveInt
+    completed_tasks: NonNegativeInt
+    total_return: float
+    clashes: NonNegativeInt
+    stuck_events: NonNegativeInt
+    wall_seconds: NonNegativeFloat
+    directive_counts: dict[str, NonNegativeInt]
+    llm_calls: NonNegativeInt
+    invalid_actions: NonNegativeInt
+    effect_violations: NonNegativeInt
+    fallbacks: NonNegativeInt
+    llm_latency_median_ms: NonNegativeFloat | None
+    llm_latency_p95_ms: NonNegativeFloat | None
+
+
+class DemoRunSummary(DemoModel):
+    """Small comparison artifact for the unscored matched demonstration."""
+
+    schema_version: Literal[1]
+    demo_only: Literal[True]
+    environment_id: str
+    seed: int
+    ppo_checkpoint_sha256: str
+    vocabulary_sha256: str
+    directive_probe_report_sha256: str
+    preflight_report_sha256: str
+    executor_episode: EpisodeResult
+    gemma_episode: EpisodeResult
+    output_directory: Path
+
+    @field_validator(
+        "ppo_checkpoint_sha256",
+        "vocabulary_sha256",
+        "directive_probe_report_sha256",
+        "preflight_report_sha256",
+    )
+    @classmethod
+    def validate_summary_digests(cls, value: str, info: Any) -> str:
+        return _digest(value, info.field_name)
+
+    @field_validator("environment_id")
+    @classmethod
+    def validate_summary_environment(cls, value: str) -> str:
+        return _nonblank(value, "environment_id")
+
+    @model_validator(mode="after")
+    def validate_episode_pair(self) -> Self:
+        if self.executor_episode.seed != self.seed:
+            raise ValueError("executor episode seed must match the matched demo seed")
+        if self.gemma_episode.seed != self.seed:
+            raise ValueError("Gemma episode seed must match the matched demo seed")
+        if self.executor_episode.controller != "ppo_executor":
+            raise ValueError("executor_episode must use the ppo_executor controller")
+        if self.gemma_episode.controller != "ppo_gemma":
+            raise ValueError("gemma_episode must use the ppo_gemma controller")
+        return self
+
+
 class DirectiveDemoConfig(DemoModel):
     """Configuration for the matched prototype demonstration runner."""
 

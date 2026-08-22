@@ -53,6 +53,10 @@ complete, and its seeds remain excluded from later scientific evaluation.
 - [x] Complete Phase 3.5's repository-owned PPO model, rollout buffer, GAE,
   loss, collector, and Lightning/Fabric training-loop refactor.
 - [x] Complete the Phase 4 fake-actioner success and fallback episode gate.
+- [x] Implement the Phase 6 matched episode runner, flushed JSONL records,
+  atomic summaries, and frozen-artifact verification.
+- [ ] Run and record the live 500-step executor/Gemma matched demonstration
+  gate; this remains prototype evidence and does not score the main project.
 
 Phase 2 of the prototype passed on 2026-08-13: 2,500 states checked across
 seeds 8000-8004 with zero uncovered states, executor failures, or effect
@@ -82,6 +86,11 @@ pinned E4B Q4_0 GGUF and CUDA-enabled llama.cpp server: health/model identity,
 5/5 measured response validity, 6/6 directive-sensitivity validity, and the
 3.56-second p95 latency gate all passed. See
 [the Phase 5 research log entry](docs/research-log/2026-08-22-directive-phase5-actioner.md).
+
+Directive-demo Phase 6's runner implementation was completed on 2026-08-22.
+The live matched 500-step gate is intentionally still pending; the
+implementation and short evaluation tests are recorded in [the Phase 6
+research log entry](docs/research-log/2026-08-22-directive-phase6-evaluation.md).
 
 ## Phase 2: runnable project foundation
 

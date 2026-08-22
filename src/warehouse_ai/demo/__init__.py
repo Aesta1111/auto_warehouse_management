@@ -1,9 +1,11 @@
 """Prototype-only directive demo package."""
 
 from warehouse_ai.demo.artifacts import (
+    append_jsonl,
     canonical_json_bytes,
     canonical_json_text,
     capture_git_state,
+    create_run_directory,
     sha256_file,
     write_json_atomic,
 )
@@ -25,6 +27,7 @@ from warehouse_ai.demo.controllers import (
     DirectiveExecutorController,
     DirectiveGemmaController,
 )
+from warehouse_ai.demo.evaluation import run_episode, run_matched_demo
 from warehouse_ai.demo.directives import (
     DeliverCarriedShelfBehavior,
     DirectiveBehavior,
@@ -56,6 +59,8 @@ from warehouse_ai.demo.models import (
     DirectiveProbeReport,
     DirectivePrediction,
     DirectiveVocabulary,
+    DemoRunSummary,
+    EpisodeResult,
     GemmaActionResponse,
     GemmaPreflightReport,
     LlamaCppConfig,
@@ -83,6 +88,7 @@ __all__ = [
     "ActionerResult",
     "ActionerSchemaError",
     "ActionerTimeoutError",
+    "append_jsonl",
     "ChatMessage",
     "DemoController",
     "DemoDecision",
@@ -108,6 +114,7 @@ __all__ = [
     "DirectiveExecutorController",
     "DirectiveGemmaController",
     "EmptyActionerResponseError",
+    "EpisodeResult",
     "GemmaActionResponse",
     "GemmaPreflightReport",
     "GemmaPromptBuilder",
@@ -126,9 +133,13 @@ __all__ = [
     "canonical_json_bytes",
     "canonical_json_text",
     "capture_git_state",
+    "create_run_directory",
     "default_behaviors",
+    "DemoRunSummary",
     "load_yaml_config",
     "evaluate_directive_ppo",
+    "run_episode",
+    "run_matched_demo",
     "sha256_file",
     "train_directive_ppo",
     "write_json_atomic",

@@ -18,6 +18,10 @@ directive-sensitivity responses were valid, and p95 latency was 3.56 seconds
 against the 10-second limit. The remaining Phase 1 gate is the prepared
 Linux/A40 cloud run for pathfinder equivalence, real 4-bit weights, memory,
 latency, and cost. The main training pipeline has not been implemented.
+The directive-demo Phase 6 matched runner is implemented and verifies all
+frozen artifacts before creating either TA-RWARE episode; its live 500-step
+executor/Gemma gate remains a separate demonstration run, not a main-project
+evaluation.
 
 The hybrid improving on PPO is a hypothesis, not a required result. Negative and
 inconclusive findings must be reported without changing the primary metric after
@@ -122,6 +126,19 @@ The preflight writes the configured report only after checking health, model
 identity, strict responses, directive sensitivity, and p95 latency. An E4B
 failure returns a distinct code recommending an explicitly configured E2B run;
 it never silently substitutes a model.
+
+Run the matched, unscored demonstration only after the preflight report passes
+and the local server is still running:
+
+```powershell
+uv run python scripts/run_directive_demo.py --config configs/demo/directive-demo-v1.yaml
+```
+
+The runner uses the same seed and frozen directive PPO checkpoint for the
+headless deterministic executor and the rendered Gemma actioner. It writes
+flushed decision JSONL plus small atomic summaries under a unique
+`results/demo/<run-id>/` directory and never computes a statistical or
+improvement claim.
 
 The deferred RunPod command is `bash scripts/run_phase1_cloud.sh` from an exact
 checked-out project commit.

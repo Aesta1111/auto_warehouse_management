@@ -4,7 +4,7 @@ episode_seed: 9100
 episode_steps: 500
 render_hybrid: true
 vocabulary_path: configs/demo/directives-v1.yaml
-directive_probe_report_path: results/demo/directive-probe-report.json
+directive_probe_report_path: results/summaries/directive-probe-report.json
 ppo_checkpoint_path: results/demo/directive-ppo-v2/directive-ppo-v2.pt
 ppo_manifest_path: results/demo/directive-ppo-v2/directive-ppo-manifest.json
 selected_model: e4b
