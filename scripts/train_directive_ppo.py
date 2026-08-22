@@ -8,12 +8,12 @@ from pathlib import Path
 
 from warehouse_ai.demo.artifacts import write_json_atomic
 from warehouse_ai.demo.directives import build_directive_registry
-from warehouse_ai.demo.models import (
+from warehouse_ai.demo.contracts.base import load_yaml_config
+from warehouse_ai.demo.contracts.directives import DirectiveVocabulary
+from warehouse_ai.demo.contracts.ppo import (
     DirectivePpoConfig,
-    DirectiveVocabulary,
-    load_yaml_config,
 )
-from warehouse_ai.demo.ppo import train_directive_ppo
+from warehouse_ai.demo.ppo.service import train_directive_ppo
 
 
 def _repository_root() -> Path:
@@ -52,11 +52,15 @@ def main() -> None:
         registry,
         output_directory,
     )
-    manifest_path = output_directory / "directive-ppo-manifest.json"
+    manifest_path = (
+        output_directory / f"directive-ppo-manifest-v{config.schema_version}.json"
+    )
     write_json_atomic(manifest_path, manifest)
     print(json.dumps(manifest.model_dump(mode="json"), indent=2, sort_keys=True))
     checkpoint_name = (
-        "directive-ppo-v1.zip" if config.schema_version == 1 else "directive-ppo-v2.pt"
+        "directive-ppo-v1.zip"
+        if config.schema_version == 1
+        else f"directive-ppo-v{config.schema_version}.pt"
     )
     print(f"checkpoint: {output_directory / checkpoint_name}")
     print(f"manifest: {manifest_path}")

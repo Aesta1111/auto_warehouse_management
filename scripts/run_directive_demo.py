@@ -6,8 +6,9 @@ import argparse
 import json
 from pathlib import Path
 
-from warehouse_ai.demo.evaluation import run_matched_demo
-from warehouse_ai.demo.models import DirectiveDemoConfig, load_yaml_config
+from warehouse_ai.demo.contracts.base import load_yaml_config
+from warehouse_ai.demo.contracts.evaluation import DirectiveDemoConfig
+from warehouse_ai.demo.evaluation.runner import run_matched_demo
 
 
 def _repository_root() -> Path:
