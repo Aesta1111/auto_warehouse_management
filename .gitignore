@@ -9,9 +9,8 @@ __pycache__/
 .local_runtime/
 
 # Prototype and experiment artifacts stay outside source control.
-results/demo/**/*.zip
-results/demo/**/*.jsonl
-results/demo/**/*.log
+results/**
+!results/.gitkeep
 *.gguf
 *.safetensors
 *.ckpt
