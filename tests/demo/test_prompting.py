@@ -71,19 +71,31 @@ def test_prompt_and_schema_are_deterministic_and_state_only(
     assert len(first.messages) == 2
     assert first.messages[0].role == "system"
     user_text = first.messages[1].content
-    payload = json.loads(user_text)
+    payload = json.loads(builder.serialize_state(request.context))
     assert payload["same_role_unique_nonzero_groups"] == {
         "agv": [0, 1, 2],
         "picker": [3, 4],
     }
     assert len(payload["agents"]) == len(request.context.observation.agents)
-    assert (
-        hashlib.sha256(user_text.encode()).hexdigest()
-        == hashlib.sha256(second.messages[1].content.encode()).hexdigest()
+    assert hashlib.sha256(user_text.encode()).hexdigest() == (
+        "9326a44c3cf3dc86481c304ed2929263519930d237d8cff9605964bef1032443"
     )
     assert "probabilities" not in user_text
     assert "value_estimate" not in user_text
     assert "three AGVs" not in user_text
+    assert "agv positions [0, 1, 2]" in user_text
+    sections = (
+        "OBJECTIVE",
+        "DIRECTIVE",
+        "AGENTS",
+        "REQUESTED SHELVES",
+        "GOALS",
+        "LEGAL DESTINATIONS",
+        "OUTPUT INSTRUCTIONS",
+    )
+    assert [user_text.index(section) for section in sections] == sorted(
+        user_text.index(section) for section in sections
+    )
     assert first.response_schema["additionalProperties"] is False
     assert first.response_schema["properties"]["destinations"]["minItems"] == 5
     assert first.response_schema["properties"]["destinations"]["maxItems"] == 5
