@@ -1,0 +1,30 @@
+schema_version: 1
+run_id: directive-ppo-gemma-fine-tuning
+ppo_training_run_config_path: configs/demo/ppo-training-run.yaml
+llm_actioner_config_path: configs/demo/llm-actioner.yaml
+parent_checkpoint_path: results/demo/ppo-training/ppo-policy.pt
+parent_manifest_path: results/demo/ppo-training/ppo-training-manifest.json
+preflight_report_path: results/demo/gemma-actioner-preflight.json
+output_directory: results/demo/ppo-gemma-fine-tuning
+train_seeds: [8100, 8101, 8102, 8103, 8104, 8105, 8106, 8107, 8108, 8109, 8110, 8111, 8112, 8113, 8114, 8115]
+selection_seeds: [8200, 8201]
+confirmation_seeds: [8202, 8203]
+final_evaluation_seeds: [9100]
+algorithm_seed: 8300
+episode_steps: 500
+total_timesteps: 1024
+learning_rate: 0.00003
+n_steps: 256
+batch_size: 64
+n_epochs: 4
+gamma: 0.99
+gae_lambda: 0.95
+clip_range: 0.2
+entropy_coefficient: 0.01
+value_coefficient: 0.5
+max_grad_norm: 0.5
+normalize_advantage: true
+target_kl: 0.01
+max_reference_kl: 0.05
+fallback_penalty: 0.001
+reward_version: simulator-reward-minus-fallback-v1

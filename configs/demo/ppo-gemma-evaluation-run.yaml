@@ -1,0 +1,13 @@
+schema_version: 1
+run_id: directive-ppo-gemma-evaluation
+fine_tuning_run_config_path: configs/demo/ppo-gemma-fine-tuning-run.yaml
+fine_tuned_checkpoint_path: results/demo/ppo-gemma-fine-tuning/fine-tuned-ppo-policy.pt
+fine_tuned_manifest_path: results/demo/ppo-gemma-fine-tuning/fine-tuning-manifest.json
+directive_probe_report_path: results/summaries/directive-probe-report-v2.json
+output_directory: results/demo
+episode_seed: 9100
+episode_steps: 500
+render_gemma: true
+prerequisite_summary_paths:
+  confirmation: results/demo/ppo-gemma-fine-tuning/selection-gate.json
+  final: results/demo/ppo-gemma-fine-tuning/confirmation-gate.json

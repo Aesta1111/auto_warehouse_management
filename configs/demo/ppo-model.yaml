@@ -1,0 +1,8 @@
+schema_version: 1
+model_id: directive-ppo-mlp
+hidden_sizes: [64]
+backend: lightning-fabric
+model_implementation_version: directive-ppo-mlp-v1
+buffer_schema_version: directive-rollout-buffer-v1
+gae_version: gae-terminated-bootstrap-truncated-trace-v1
+loss_version: clipped-ppo-loss-v1
