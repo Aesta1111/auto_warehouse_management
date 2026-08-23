@@ -8,9 +8,10 @@
 >   `7d26695454df6de5fbcce2e58681e62dae06ce43`, file
 >   `Qwen_Qwen3.5-2B-Q8_0.gguf`, SHA-256
 >   `be647507ce6cde229b838924d47bfff9763171105563f7f908670dae57c4dbe2`.
-> - Prompt: `configs/demo/llm-actioner-few-shot-prompt.yaml` metadata plus
->   `llm-actioner-few-shot-prompt.txt`, three examples per directive (12 total),
->   exact template/contract digests, and strict JSON-schema output.
+> - Prompt: `configs/demo/llm-actioner-few-shot-prompt.yaml` metadata plus one
+>   TXT template for each of the three LLM-actioned directives, three examples
+>   per template (nine total), exact template/contract digests, and strict
+>   JSON-schema output. `wait` bypasses the LLM deterministically.
 > - PPO: exactly `[256, 256, 256, 256]`, 100,000 parent timesteps, then 4,096
 >   frozen-LLM adaptation steps. Both runs require `accelerator: cuda` and record
 >   CUDA/Torch/GPU provenance.
@@ -277,8 +278,9 @@ assignments, and same-role destination conflicts.
 
 ### 3.4 LLM prompt
 
-The active byte-stable schema-v2 prompt is described by YAML metadata and an
-external TXT template containing only controller-visible information:
+The active byte-stable schema-v3 prompt is described by YAML metadata and three
+directive-specific external TXT templates containing only controller-visible
+information:
 
 - The predicted English command and its frozen description.
 - Episode step and the objective of completing requested shelf work.
@@ -287,11 +289,13 @@ external TXT template containing only controller-visible information:
 - Per-agent legal destination IDs, with zero explained as no-op.
 - The single-action JSON contract and a warning that every choice is validated.
 
-The active template supplies three labeled synthetic user/assistant examples
-for each of the four directive classes, twelve examples total. Examples vary
-agent roles, legal destinations, carrying/requested/goal state, selected
-positions, and no-op choices without exposing experiment seeds. The exact TXT
-bytes, marker set, template version, and YAML metadata are covered by the
+Each active template supplies three labeled synthetic examples for its selected
+LLM-actioned directive, nine examples total across service, delivery, and
+repositioning. Examples vary agent roles, legal destinations,
+carrying/requested/goal state, selected positions, and no-op choices without
+exposing experiment seeds. `wait` has no template because the execution service
+uses the deterministic all-no-op executor. The exact TXT bytes, behavior-key
+mapping, marker set, template version, and YAML metadata are covered by the
 prompt-contract digest; the frozen catalog digest remains unchanged.
 
 Use deterministic decoding, at most 192 generated tokens, and no corrective
@@ -378,7 +382,8 @@ Add one argparse runner with a strict versioned configuration. It should:
 
 1. Load and verify the directive PPO checkpoint, catalog, executor, and
    manifests.
-2. Check the local LLM server and run the Qwen four-class preflight.
+2. Check the local LLM server and run the Qwen three-class LLM preflight; verify
+   the deterministic `wait` bypass separately.
 3. Run the frozen PPO policy with its deterministic training executor headlessly
    for 500 steps using matched-demo seed `9300`.
 4. Reset the identical environment configuration to seed `9300`.
@@ -427,7 +432,9 @@ configs/demo/
 |-- directive-catalog.yaml
 |-- directive-semantics-probe.yaml
 |-- llm-actioner-few-shot-prompt.yaml
-|-- llm-actioner-few-shot-prompt.txt
+|-- llm-actioner-service-requested-shelf-prompt.txt
+|-- llm-actioner-deliver-carried-shelf-prompt.txt
+|-- llm-actioner-reposition-idle-agent-prompt.txt
 |-- ppo-model.yaml
 |-- llm-actioner.yaml
 |-- ppo-training-run.yaml
@@ -1439,8 +1446,9 @@ python scripts/evaluate_llm_finetuned_ppo.py --config configs/demo/ppo-llm-evalu
   `ppo-model.yaml`, trains, evaluates, and writes a checkpoint manifest. The
   configured MLP successor remains untrained and must create new artifacts;
   historical checkpoint manifests keep their original schema identities.
-- `probe_llm_actioner.py` performs the Qwen health, JSON, four-class sensitivity,
-  model-identity, prompt-contract, and latency preflight.
+- `probe_llm_actioner.py` performs the Qwen health, JSON, three-class LLM
+  sensitivity, model-identity, prompt-contract, and latency preflight. Ordinary
+  execution tests own the deterministic `wait` bypass.
 - `start_local_llm.ps1` starts the pinned Qwen server with the configured context,
   offload, deterministic decoding, and reasoning-off settings. Model artifacts
   remain outside Git.
@@ -1651,15 +1659,16 @@ Deliverables:
 
 - Health and advertised model identity are verified before generation.
 - The pinned JSON-schema request shape returns strictly parsed single actions.
-- Qwen passes validity, four-class directive sensitivity, model identity,
-  prompt-contract, and p95 latency gates.
+- Qwen passes validity, three-class LLM directive sensitivity, model identity,
+  prompt-contract, and p95 latency gates; deterministic `wait` coverage passes
+  without an LLM call.
 - Model file, prompt schema, server, offload, context, and hardware provenance
   are recorded.
 
-The later schema-v3 preflight must additionally record the exact prompt-contract
-digest and fail closed if it differs from the configured prompt spec. Its live
-gate remains pending and must cover all four directive classes before a matched
-episode is interpreted.
+The schema-v3 preflight must additionally record the exact aggregate prompt
+contract/template digest and fail closed if it differs from the configured
+per-directive prompt spec. Its live gate remains pending and must cover all
+three LLM-actioned directive classes before a matched episode is interpreted.
 
 Gate: `probe_llm_actioner.py` produces a passing preflight report for the
 exact server that will be used by the demo.
@@ -1774,8 +1783,8 @@ The first prototype is complete when:
   phases load only its schema-v2 checkpoint.
 - The selected PPO policy uses at least two non-wait directives on validation
   episodes and never submits an inapplicable directive.
-- Qwen preflight passes for all four directive classes with the pinned model and
-  prompt contract.
+- Qwen preflight passes for all three LLM-actioned directive classes with the
+  pinned model and prompt contract; `wait` remains a deterministic bypass.
 - The directive-sensitivity probe demonstrates that the selected local model
   can produce actions satisfying at least two distinct directive-effect rules;
   otherwise the prototype is reported as blocked rather than treating the

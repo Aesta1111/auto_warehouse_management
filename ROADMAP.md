@@ -155,9 +155,11 @@ historical run or its artifacts. The active parent config is exactly
 `[256, 256, 256, 256]` with 100,000 configured CUDA timesteps; the frozen-LLM
 adaptation is 4,096 environment steps. The active actioner is the pinned
 Apache-labeled Qwen3.5-2B Q8 GGUF, with an 8k context, full permitted offload,
-deterministic decoding, and reasoning disabled. Its external prompt has three
-examples per directive (12 total), and preflight now requires all four directive
-classes plus exact prompt/template digests. The model loaded successfully on the
+deterministic decoding, and reasoning disabled. Its schema-v3 prompt maps the
+three LLM-actioned directives to separate TXT files with three examples each
+(nine total); `wait` bypasses the LLM deterministically. Preflight requires all
+three LLM-actioned classes plus exact aggregate/per-template digests. The model
+loaded successfully on the
 RTX 4050 and returned a strict JSON-schema response, but the full parent,
 preflight, adaptation, and gated evaluation sequence is still pending; no new
 performance result is claimed.

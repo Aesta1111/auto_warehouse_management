@@ -188,8 +188,10 @@ must first verify the exact model/runtime boundary rather than infer it from a
 toy gradient probe.
 
 Before the full run, preflight locks and checks model identity, file digest,
-quantization, prompt/template digests, all four directive classes, strict JSON
-validity, directive sensitivity, and the configured p95 latency ceiling.
+quantization, aggregate/per-template prompt digests, the three LLM-actioned
+directive classes, strict JSON validity, directive sensitivity, and the
+configured p95 latency ceiling. `wait` is excluded because execution bypasses
+the LLM and uses the deterministic directive executor.
 
 ## 6. Metrics and evaluation protocol
 
@@ -537,15 +539,17 @@ The inference boundary remains a replaceable `ModelBackend`; the active
 implementation uses the pinned Qwen3.5-2B Q8 GGUF through llama.cpp with an
 8,192-token context, full permitted GPU offload, deterministic decoding, and
 reasoning disabled. Compatibility smoke testing loaded the model and returned
-strict JSON on the RTX 4050; the full four-class preflight remains a run gate.
+strict JSON on the RTX 4050; the full three-class LLM preflight remains a run
+gate, with deterministic `wait` behavior verified separately.
 The active LLM actioner selects the separate, digest-verified few-shot prompt
 contract. The byte-stable legacy builder remains internal for historical prompt
 verification, but it no longer has an active YAML run configuration.
 The frozen directive catalog still owns `description` for artifact identity,
-logging, and fallback reasons; the active prompt spec owns richer instructions
-and an external TXT template with three examples for each behavior key. Few-shot
-requests use twelve user/assistant example pairs before the full live-state
-request and do not expose experiment seeds. The active adaptation is PPO
+logging, and fallback reasons; the active schema-v3 prompt spec maps each of the
+three LLM-actioned behavior keys to its own external TXT template. Each selected
+request includes only that directive's three examples before the full live
+state, so unrelated examples and experiment seeds are absent. `wait` has no
+template because it uses the deterministic executor. The active adaptation is PPO
 fine-tuning with frozen Qwen inference, not Qwen weight fine-tuning: the model
 file, prompt contract, decoding settings, catalog, and parent PPO checkpoint
 remain immutable. It uses 4,096 environment steps, parent training seeds,
@@ -563,8 +567,9 @@ The prior full run and its research-log conclusion are historical and remain
 unchanged. The new active experiment is versioned separately: PPO uses exactly
 four hidden layers of 256 units and 100,000 configured parent timesteps on
 CUDA; frozen-LLM adaptation uses 4,096 environment steps. The actioner uses the
-pinned Qwen3.5-2B Q8 GGUF and an external TXT prompt with three diverse examples
-per directive (12 total). Reasoning is explicitly disabled. Confirmation keeps
+pinned Qwen3.5-2B Q8 GGUF and three external directive-specific TXT prompts with
+three diverse examples each (nine total). `wait` bypasses the LLM. Reasoning is
+explicitly disabled. Confirmation keeps
 seeds `8202-8203`, the matched demo uses fresh seed `9300`, and final seed
 `9200` remains untouched until confirmation passes. See the new dated research
 log entry for implementation evidence and the pending run sequence.

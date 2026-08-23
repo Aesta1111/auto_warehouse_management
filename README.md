@@ -88,8 +88,8 @@ timesteps on CUDA. The frozen-LLM PPO adaptation is 4,096 environment steps.
 The matched demonstration uses seed `9300`; confirmation remains `8202-8203`,
 and final seed `9200` is exposed only after confirmation passes.
 
-The catalog, few-shot prompt, and semantics-probe files are immutable supporting
-contracts rather than runnable experiment configurations.
+The catalog, versioned few-shot prompt metadata/templates, and semantics-probe
+files are supporting contracts rather than runnable experiment configurations.
 
 The isolated prototype's Phase 2 registry and live-seed probe can be rerun with:
 
@@ -119,7 +119,8 @@ are intentionally not included in this command.
 Prepare and start the real local Qwen/llama.cpp actioner on a Windows NVIDIA
 machine from two terminals. The `start-llm` subcommand downloads the pinned
 2.08 GB GGUF and the pinned CUDA 12.4 llama.cpp runtime into the ignored
-`.local_runtime/` directory, then serves it with partial GPU offload:
+`.local_runtime/` directory, then serves it with full configured model offload
+when the compatibility check permits it:
 
 ```powershell
 uv run python scripts/run_directive_demo.py start-llm --prepare
@@ -135,13 +136,18 @@ LLM preflight separately before the demo:
 ```
 
 The evaluation run resolves the reusable `llm-actioner.yaml` and
-`llm-actioner-few-shot-prompt.yaml` plus its external TXT template. It remains blocked until the new PPO
-checkpoint and manifest exist; this live preflight has not run.
+`llm-actioner-few-shot-prompt.yaml` plus three directive-specific TXT templates.
+Each template contains three examples for its selected LLM-actioned directive.
+`wait` has no prompt file because the shared execution service handles it
+deterministically without an LLM call. The live preflight remains blocked until
+the new PPO checkpoint and manifest exist; it has not run.
 
 The preflight writes the configured report only after checking health, model
-identity, strict responses across all four directive classes, directive
-sensitivity, prompt/template digests, and p95 latency. Reasoning is disabled
-with `--reasoning off --reasoning-budget 0`; it never silently substitutes a model.
+identity, strict responses across the three LLM-actioned directive classes,
+directive sensitivity, the aggregate and per-template prompt digests, and p95
+latency. The deterministic `wait` bypass remains covered by ordinary execution
+tests. Reasoning is disabled with `--reasoning off --reasoning-budget 0`; the
+runtime never silently substitutes a model.
 
 Run the matched, unscored demonstration only after the preflight report passes
 and the local server is still running:
