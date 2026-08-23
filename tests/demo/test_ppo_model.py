@@ -58,8 +58,10 @@ def test_mlp_rejects_empty_or_non_positive_dimensions() -> None:
 def test_deterministic_ties_choose_lowest_id_and_sampling_respects_mask() -> None:
     module = _module()
     with torch.no_grad():
-        module.policy_network.layers[-1].weight.zero_()
-        module.policy_network.layers[-1].bias.zero_()
+        last_layer = module.policy_network.layers[-1]
+        assert isinstance(last_layer, torch.nn.Linear)
+        last_layer.weight.zero_()
+        last_layer.bias.zero_()
     observations = torch.zeros((2, 3))
     masks = torch.tensor([[False, True, True, False], [True, False, False, True]])
     deterministic = module.act(observations, masks, deterministic=True)

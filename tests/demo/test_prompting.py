@@ -131,8 +131,11 @@ def test_few_shot_prompt_is_deterministic_and_excludes_catalog_description(
     live_text = first.messages[1].content
     all_text = "\n".join(message.content for message in first.messages)
     assert "command: service-requested-shelf" in live_text
-    assert "instruction: Prefer a legal destination that advances requested shelf work." in live_text
-    assert request.prediction.directive.description in all_text
+    assert (
+        "instruction: Prefer a legal destination that advances requested shelf work."
+        in live_text
+    )
+    assert request.directive.description in all_text
     assert "GLOBAL RULES" in live_text
     assert "FINAL CHECK" in live_text
     assert "SELECTED DIRECTIVE" in live_text
@@ -211,10 +214,12 @@ def test_actioner_records_reject_mismatched_request_state(
     catalog: DirectiveCatalog, wrapped_env: TarwareEnvWrapper
 ) -> None:
     request = _request(wrapped_env, catalog)
+    prediction = request.prediction
+    assert prediction is not None
     with pytest.raises(ValidationError, match="states differ"):
         ActionerRequest(
             context=request.context,
-            prediction=request.prediction.model_copy(update={"state_id": "stale"}),
+            prediction=prediction.model_copy(update={"state_id": "stale"}),
         )
 
 

@@ -122,7 +122,9 @@ def test_two_step_fake_fine_tune_saves_reloadable_child_checkpoint() -> None:
         fallback_penalty=config.fallback_penalty,
     )
     actioner.environment = environment
-    parent = _parent(catalog, int(environment.observation_space.shape[0]))
+    observation_shape = environment.observation_space.shape
+    assert observation_shape is not None
+    parent = _parent(catalog, int(observation_shape[0]))
     parent_manifest = PpoManifest.model_construct(
         checkpoint_sha256="1" * 64,
     )

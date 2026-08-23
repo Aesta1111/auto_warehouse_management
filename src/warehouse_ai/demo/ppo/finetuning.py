@@ -7,7 +7,7 @@ import random
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import torch
@@ -34,6 +34,14 @@ from warehouse_ai.demo.inference.provenance import hardware_provenance
 
 CHECKPOINT_NAME = "fine-tuned-ppo-policy.pt"
 PROGRESS_NAME = "fine-tuning-progress.pt"
+
+
+def _accelerator_name(device: torch.device) -> Literal["cpu", "cuda"]:
+    if device.type == "cuda":
+        return "cuda"
+    if device.type == "cpu":
+        return "cpu"
+    raise RuntimeError(f"unsupported Fabric device type: {device.type}")
 
 
 @dataclass(frozen=True)
@@ -265,7 +273,7 @@ class LlmFineTuneLoop:
             int(shape[0]),
             model.hidden_sizes,
             str(fabric.device),
-            fabric.device.type,
+            _accelerator_name(fabric.device),
         )
 
     @staticmethod
@@ -281,7 +289,7 @@ class LlmFineTuneLoop:
         observation_size: int,
         hidden_sizes: tuple[int, ...],
         selected_device: str,
-        selected_accelerator: str,
+        selected_accelerator: Literal["cpu", "cuda"],
     ) -> LlmFineTuneManifest:
         git_commit, dirty = capture_git_state(_repository_root())
         hyperparameters = {

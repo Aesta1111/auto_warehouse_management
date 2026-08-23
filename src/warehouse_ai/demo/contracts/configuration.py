@@ -242,14 +242,16 @@ class LoadedPpoEvaluationRun:
     def demo_runtime(self) -> DemoConfig:
         parent = self.fine_tuning.runtime
         actioner = self.fine_tuning.actioner
+        episode_seed = self.run.episode_seed
+        if self.run.schema_version == 1:
+            if episode_seed is None:
+                raise ValueError("schema-v1 evaluation configs require episode_seed")
+        else:
+            episode_seed = self.run.matched_demo_seed
         return DemoConfig(
             schema_version=5,
             environment_id=parent.environment_id,
-            episode_seed=(
-                self.run.episode_seed
-                if self.run.schema_version == 1
-                else self.run.matched_demo_seed
-            ),
+            episode_seed=episode_seed,
             episode_steps=self.run.episode_steps,
             render_hybrid=self.run.render_llm,
             vocabulary_path=parent.vocabulary_path,
@@ -388,14 +390,10 @@ def load_ppo_evaluation_run(
     run = load_yaml_config(_resolve(root, path), PpoEvaluationRunConfig)
     fine_tuning = load_ppo_fine_tuning_run(run.fine_tuning_run_config_path, root)
     final_seed = (
-        run.episode_seed
-        if run.schema_version == 1
-        else run.final_evaluation_seed
+        run.episode_seed if run.schema_version == 1 else run.final_evaluation_seed
     )
     if final_seed not in fine_tuning.run.final_evaluation_seeds:
-        raise ValueError(
-            "evaluation final seed must be reserved for final evaluation"
-        )
+        raise ValueError("evaluation final seed must be reserved for final evaluation")
     if run.episode_steps != fine_tuning.run.episode_steps:
         raise ValueError("evaluation and fine-tuning episode lengths differ")
     return LoadedPpoEvaluationRun(run=run, fine_tuning=fine_tuning)

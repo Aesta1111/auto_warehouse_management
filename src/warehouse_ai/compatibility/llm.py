@@ -87,15 +87,12 @@ def run_tiny_llm_probe(seed: int = 0) -> dict[str, Any]:
         parameter.grad is not None and bool(torch.isfinite(parameter.grad).all())
         for parameter in projector.parameters()
     )
-    projector_grad_norm = float(
-        torch.sqrt(
-            sum(
-                parameter.grad.detach().pow(2).sum()
-                for parameter in projector.parameters()
-                if parameter.grad is not None
-            )
-        )
-    )
+    squared_gradients = [
+        parameter.grad.detach().pow(2).sum()
+        for parameter in projector.parameters()
+        if parameter.grad is not None
+    ]
+    projector_grad_norm = float(torch.stack(squared_gradients).sum().sqrt())
     optimizer.step()
     current = dict(projector.named_parameters())
     projector_updated = any(

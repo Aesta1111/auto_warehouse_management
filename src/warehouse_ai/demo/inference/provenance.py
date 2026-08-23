@@ -31,9 +31,11 @@ def hardware_provenance() -> dict[str, Any]:
     try:
         import torch
 
-        facts["torch"] = torch.__version__
-        facts["torch_build"] = torch.__version__
-        facts["torch_cuda_version"] = torch.version.cuda
+        torch_version = str(getattr(torch, "__version__", "unknown"))
+        facts["torch"] = torch_version
+        facts["torch_build"] = torch_version
+        torch_version_module = getattr(torch, "version", None)
+        facts["torch_cuda_version"] = getattr(torch_version_module, "cuda", None)
         facts["cuda_available"] = bool(torch.cuda.is_available())
         if torch.cuda.is_available():
             facts["cuda_device"] = torch.cuda.get_device_name(0)

@@ -221,9 +221,7 @@ def test_preflight_report_records_independent_gates() -> None:
     )
     assert report.passed
     with pytest.raises(ValidationError, match="cannot exceed"):
-        LlmPreflightReport.model_validate(
-            {**report.model_dump(), "valid_responses": 6}
-        )
+        LlmPreflightReport.model_validate({**report.model_dump(), "valid_responses": 6})
 
 
 def test_preflight_fails_closed_on_prompt_contract_mismatch() -> None:

@@ -6,7 +6,7 @@ import importlib.metadata
 import random
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import torch
@@ -37,6 +37,14 @@ from warehouse_ai.demo.inference.provenance import hardware_provenance
 VALIDATION_INTERVAL = 5_000
 HIDDEN_SIZE = 64
 PPO_CHECKPOINT_NAME = "ppo-policy.pt"
+
+
+def _accelerator_name(device: torch.device) -> Literal["cpu", "cuda"]:
+    if device.type == "cuda":
+        return "cuda"
+    if device.type == "cpu":
+        return "cpu"
+    raise RuntimeError(f"unsupported Fabric device type: {device.type}")
 
 
 def _repository_root() -> Path:
@@ -87,7 +95,9 @@ class PpoTrainingLoop:
         np.random.seed(config.algorithm_seed)
         torch.manual_seed(config.algorithm_seed)
         if config.accelerator == "cuda" and not torch.cuda.is_available():
-            raise RuntimeError("PPO config requires CUDA, but torch.cuda is unavailable")
+            raise RuntimeError(
+                "PPO config requires CUDA, but torch.cuda is unavailable"
+            )
         fabric = Fabric(
             accelerator=config.accelerator,
             devices=1,
@@ -191,7 +201,7 @@ class PpoTrainingLoop:
             selected_updates=selected_updates,
             validation=best,
             selected_device=str(fabric.device),
-            selected_accelerator=fabric.device.type,
+            selected_accelerator=_accelerator_name(fabric.device),
         )
 
     @staticmethod
@@ -207,7 +217,7 @@ class PpoTrainingLoop:
         selected_updates: int,
         validation: PpoValidationSummary,
         selected_device: str,
-        selected_accelerator: str,
+        selected_accelerator: Literal["cpu", "cuda"],
     ) -> PpoManifest:
         git_commit, dirty = capture_git_state(_repository_root())
         hidden_sizes = tuple(

@@ -161,18 +161,29 @@ class LlmPromptSpec(DemoModel):
                 raise ValueError("prompt directive commands must be unique")
             if self.system_message is None:
                 raise ValueError("schema-v1 prompt specs require system_message")
-            if self.template_version is not None or self.prompt_template_path is not None:
-                raise ValueError("schema-v1 prompt specs cannot select an external template")
+            if (
+                self.template_version is not None
+                or self.prompt_template_path is not None
+            ):
+                raise ValueError(
+                    "schema-v1 prompt specs cannot select an external template"
+                )
             return self
 
         if self.system_message is not None or self.directives:
-            raise ValueError("schema-v2 prompt specs must keep prompt text in the TXT file")
+            raise ValueError(
+                "schema-v2 prompt specs must keep prompt text in the TXT file"
+            )
         if self.template_version is None or self.prompt_template_path is None:
-            raise ValueError("schema-v2 prompt specs require template metadata and a TXT path")
+            raise ValueError(
+                "schema-v2 prompt specs require template metadata and a TXT path"
+            )
         if self.required_behavior_keys != expected:
             raise ValueError("schema-v2 prompt specs must list all four behavior keys")
         if tuple(self.command_metadata) != expected:
-            raise ValueError("schema-v2 command metadata must use canonical behavior keys")
+            raise ValueError(
+                "schema-v2 command metadata must use canonical behavior keys"
+            )
         if self.example_count != len(expected) * self.examples_per_directive:
             raise ValueError("example_count must match the directive/example metadata")
         return self
@@ -183,7 +194,9 @@ class LlmPromptSpec(DemoModel):
             (item.behavior_key, item.command) for item in catalog.directives
         )
         if self.schema_version == 1:
-            actual = tuple((item.behavior_key, item.command) for item in self.directives)
+            actual = tuple(
+                (item.behavior_key, item.command) for item in self.directives
+            )
             if actual != expected:
                 raise ValueError("prompt directives do not match the directive catalog")
             return
@@ -191,11 +204,15 @@ class LlmPromptSpec(DemoModel):
             (key, self.command_metadata[key]) for key in self.required_behavior_keys
         )
         if actual != expected:
-            raise ValueError("prompt command metadata does not match the directive catalog")
+            raise ValueError(
+                "prompt command metadata does not match the directive catalog"
+            )
 
     def by_behavior_key(self, behavior_key: str) -> DirectivePrompt:
         if self.schema_version != 1:
-            raise KeyError("schema-v2 prompt specs store directive text in the template")
+            raise KeyError(
+                "schema-v2 prompt specs store directive text in the template"
+            )
         for directive in self.directives:
             if directive.behavior_key == behavior_key:
                 return directive

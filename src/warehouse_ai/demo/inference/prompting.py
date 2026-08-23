@@ -75,7 +75,9 @@ class LlmPromptBuilder:
             prompt_spec.validate_catalog(catalog)
         if prompt_spec is not None and prompt_spec.schema_version == 2:
             if template_bytes is None:
-                raise ValueError("schema-v2 prompt specs require external template bytes")
+                raise ValueError(
+                    "schema-v2 prompt specs require external template bytes"
+                )
             template = template_bytes.decode("utf-8")
             missing = sorted(
                 marker for marker in _TEMPLATE_MARKERS if marker not in template
@@ -105,7 +107,9 @@ class LlmPromptBuilder:
             try:
                 template_bytes = template_path.read_bytes()
             except OSError as exc:
-                raise ValueError(f"could not load prompt template {template_path}") from exc
+                raise ValueError(
+                    f"could not load prompt template {template_path}"
+                ) from exc
         return cls(spec, catalog, template_bytes=template_bytes)
 
     @property
@@ -208,6 +212,7 @@ class LlmPromptBuilder:
             )
 
         prompt_directive = self.prompt_spec.by_behavior_key(directive.behavior_key)
+        assert self.prompt_spec.system_message is not None
         messages: list[ChatMessage] = [
             ChatMessage(role="system", content=self.prompt_spec.system_message)
         ]

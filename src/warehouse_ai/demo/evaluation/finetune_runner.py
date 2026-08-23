@@ -39,9 +39,7 @@ def _resolve(root: Path, path: Path) -> Path:
 
 def _load_manifest(path: Path) -> LlmFineTuneManifest:
     try:
-        return LlmFineTuneManifest.model_validate_json(
-            path.read_text(encoding="utf-8")
-        )
+        return LlmFineTuneManifest.model_validate_json(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
         raise ValueError(f"could not load fine-tuning manifest {path}") from exc
 

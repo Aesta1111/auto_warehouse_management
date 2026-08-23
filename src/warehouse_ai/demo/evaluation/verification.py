@@ -78,7 +78,9 @@ def verify_demo_artifacts(
             resolve_path(repository_root, config.prompt_spec_path), catalog
         )
     )
-    expected_ppo_schema = 5 if config.schema_version >= 5 else (4 if config.schema_version == 4 else 3)
+    expected_ppo_schema = (
+        5 if config.schema_version >= 5 else (4 if config.schema_version == 4 else 3)
+    )
     if manifest.schema_version != expected_ppo_schema or probe.schema_version != 2:
         raise ValueError(
             "demo config requires its versioned PPO schema and probe schema v2"

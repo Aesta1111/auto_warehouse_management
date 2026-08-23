@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -181,7 +182,7 @@ def test_schema_v3_state_keys_migrate_to_equivalent_mlp(tmp_path: Path) -> None:
         ),
         git_commit="synthetic-test",
         dirty_worktree=False,
-        created_at_utc="2026-08-23T00:00:00Z",
+        created_at_utc=datetime(2026, 8, 23, tzinfo=timezone.utc),
     )
 
     loaded = PpoPolicy.load(checkpoint, catalog, manifest)

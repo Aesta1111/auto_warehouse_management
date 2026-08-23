@@ -9,6 +9,7 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TextIO
 
 
 def _gpu_snapshot() -> list[dict[str, str | int | float | None]]:
@@ -56,7 +57,7 @@ def _gpu_snapshot() -> list[dict[str, str | int | float | None]]:
 
 
 def _write_sample(
-    handle: object,
+    handle: TextIO,
     *,
     phase: str,
     event: str,
@@ -69,7 +70,6 @@ def _write_sample(
         "elapsed_seconds": round(time.monotonic() - started, 3),
         "gpus": _gpu_snapshot(),
     }
-    assert hasattr(handle, "write")
     handle.write(json.dumps(record, sort_keys=True) + "\n")
     handle.flush()
     print(json.dumps(record, sort_keys=True), flush=True)

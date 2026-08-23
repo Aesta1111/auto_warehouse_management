@@ -171,9 +171,7 @@ def run_preflight(
             selected_directives = directives[:4]
             for directive_id in selected_directives:
                 sensitivity_pairs += 1
-                sensitivity_classes.add(
-                    catalog.by_id(directive_id).behavior_key
-                )
+                sensitivity_classes.add(catalog.by_id(directive_id).behavior_key)
                 request = forced_request(context, policy, catalog, directive_id)
                 _, valid, error = timed_action(actioner, validator, request, wrapper)
                 validities.append(valid)
