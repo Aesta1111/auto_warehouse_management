@@ -47,7 +47,7 @@ flowchart TD
     RG --> DS[Refinement dataset]
     DS --> HT[Train latent projector and LoRA]
     PC --> HT
-    BM[Frozen quantized Gemma] --> HT
+    BM[Frozen quantized LLM] --> HT
     HT --> HC[Frozen hybrid checkpoint]
     EV[Held-out evaluation seeds] --> CE[Paired controller evaluation]
     PC --> CE
@@ -183,9 +183,9 @@ Every authoritative run records:
 
 The directive prototype separates reusable components from executable runs.
 `ppo-model.yaml` owns the PPO MLP shape and implementation identity, while
-`llm-actioner.yaml` owns the frozen Gemma identity, prompt, decoding settings,
+`llm-actioner.yaml` owns the frozen Qwen identity, prompt, decoding settings,
 and llama.cpp runtime. `ppo-training-run.yaml`,
-`ppo-gemma-fine-tuning-run.yaml`, and `ppo-gemma-evaluation-run.yaml` reference
+`ppo-llm-fine-tuning-run.yaml`, and `ppo-llm-evaluation-run.yaml` reference
 those components and own only their run-specific seeds, budgets, artifact
 paths, and gates. Loaders resolve the graph into the existing strict runtime
 contracts before importing Torch, Lightning, or httpx.
@@ -226,8 +226,9 @@ does not replace the main project's PPO architecture decision.
 The untrained configurable-MLP extension composes independent policy and value
 `Mlp` modules from the shared `ppo-model.yaml` `hidden_sizes` sequence. Linear layers live
 in `nn.ModuleList`, `tanh` is applied only between layers, and the final hidden
-activation remains the exposed latent. Its initial `[64]` setting is
-mathematically equivalent to the measured schema-v3 branch shape. Generated
+activation remains the exposed latent. The active refresh declares exactly
+`[256, 256, 256, 256]`; historical schemas remain loadable through the explicit
+legacy path. Generated
 manifests retain artifact schema versions, and historical schema-v2/schema-v3
 checkpoints keep their identities and load through an explicit one-layer
 state-key migration; active YAML filenames no longer encode that history.
@@ -246,7 +247,7 @@ demo/
 ```
 
 All package initializers are minimal. Importing contracts or configuration must
-not import Torch, Lightning, SB3, or httpx. `GemmaActioner` parses untrusted
+not import Torch, Lightning, SB3, or httpx. `LlmActioner` parses untrusted
 messages but never receives a simulator wrapper. `ActionValidator` performs the
 single stale-state, vector, wrapper-decode, canonical-order, and directive-effect
 validation pass before one controller pipeline chooses deterministic fallback.
@@ -264,11 +265,12 @@ using its label.
 
 ### Hybrid
 
-The hybrid freezes PPO and the quantized base Gemma model. It trains:
+The directive prototype freezes PPO and the quantized Qwen base model. It trains:
 
-- A projector from one PPO latent vector to a fixed sequence of Gemma embedding
+- A projector from one PPO latent vector to a fixed sequence of LLM embedding
   vectors.
-- LoRA adapters on an explicitly configured subset of Gemma modules.
+- LoRA adapters are not trained in this frozen-LLM prototype; compatibility
+  remains a separate future question.
 
 The LLM also receives a compact textual state and explicit eligible assignments.
 It returns structured robot-task pairs and a short reason. Invalid output gets
@@ -302,6 +304,6 @@ The first technical milestone must replace these unknowns with pinned facts:
 - Multi-agent representation and valid-action masking requirements.
 - Snapshot/restore feasibility and determinism.
 - Smallest meaningful standard environment configuration.
-- Exact Gemma Hugging Face ID, revision, license, quantization, and memory use.
+- Exact Qwen Hugging Face ID, revision, license, quantization, and memory use.
 - Embedding injection and quantized LoRA compatibility.
 

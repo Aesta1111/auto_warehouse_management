@@ -35,3 +35,4 @@ Add completed entries below in chronological order:
 | 2026-08-22 | Directive-demo Phase 6 evaluation runner | Matched runner implemented and short tests pass; live 500-step gate pending | [Entry](2026-08-22-directive-phase6-evaluation.md) |
 | 2026-08-22 | Directive-demo architecture refactor and matched run | Refactor gates pass; E4B matched run completes but falls back on 361 effect violations | [Entry](2026-08-22-directive-demo-refactor-v2.md) |
 | 2026-08-23 | Directive-demo PPO/Gemma full run | Parent, adaptation, matched demo, selection, and confirmation completed; confirmation rejects child and blocks final seed | [Entry](2026-08-23-directive-ppo-gemma-full-run.md) |
+| 2026-08-24 | Qwen3.5-2B actioner and larger PPO refresh | Pinned Q8 runtime and CUDA Torch smoke tests pass; full 100k/4096 run remains pending | [Entry](2026-08-24-qwen3.5-2b-ppo-refresh.md) |

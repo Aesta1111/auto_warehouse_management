@@ -9,9 +9,11 @@
 - Simulator: Task Assignment Robotic Warehouse (TA-RWARE), from
   <https://github.com/uoe-agents/task-assignment-robotic-warehouse>.
 - Compatibility status: TA-RWARE is pinned and its local Windows interface has
-  been verified. The Gemma 4 model identities are pinned, and a random tiny
-  Gemma 4 model has verified the embedding/LoRA gradient path. Linux pathfinder
-  equivalence and the real quantized model run remain deferred cloud checks.
+  been verified. The active directive prototype now pins an Apache-labeled
+  Qwen3.5-2B Q8 GGUF and has verified local llama.cpp loading, health/model
+  identity, 8k context, full permitted offload, and strict JSON-schema output
+  on the RTX 4050. Qwen Transformers/LoRA/soft-token training remains explicitly
+  unverified and is not part of this frozen-LLM prototype.
 
 This document is the source of truth for project intent. Future changes should update this file rather than relying on conversation history.
 
@@ -24,7 +26,7 @@ Supporting documents define implementation boundaries and working procedure:
 
 ## 2. Project summary
 
-The project investigates whether a hybrid controller can improve warehouse task assignment over a PPO policy. PPO learns a compact representation of the simulated warehouse state. A learned projector maps the PPO latent representation into soft prompt tokens for an instruction-tuned Gemma model. The LLM also receives a compact human-readable state and explicit validity constraints, then returns structured robot-to-task assignments.
+The project investigates whether a hybrid controller can improve warehouse task assignment over a PPO policy. PPO learns a compact representation of the simulated warehouse state. A learned projector may map the PPO latent representation into soft prompt tokens for an instruction-tuned LLM in the main research system. The LLM also receives a compact human-readable state and explicit validity constraints, then returns structured robot-to-task assignments.
 
 The main scientific comparison is:
 
@@ -38,7 +40,7 @@ The primary outcome is task throughput: tasks completed during equal-length epis
 
 ### Research question
 
-Under held-out task sequences in TA-RWARE, does a Gemma task-assignment controller conditioned on projected PPO latent features outperform the original PPO controller in completed tasks per fixed-length episode?
+Under held-out task sequences in TA-RWARE, does an LLM task-assignment controller conditioned on projected PPO latent features outperform the original PPO controller in completed tasks per fixed-length episode?
 
 ### Hypothesis
 
@@ -62,7 +64,8 @@ Training the LLM only to imitate PPO cannot justify an improvement claim. The im
 - Held-out task sequences/random seeds; unseen layouts are not part of the core claim.
 - Three controllers: heuristic, PPO, and hybrid.
 - Event-driven LLM decisions when a task assignment is required.
-- A fixed Gemma-family model, projected latent tokens, and LoRA adapters.
+- A fixed LLM, projected latent tokens, and any adapters only after compatibility is
+  demonstrated.
 - CLI commands plus configuration files for reproducible runs.
 - Local CSV/JSON results, plots, configs, and small summaries stored in Git.
 - Ten independent held-out evaluation seeds per core controller.
@@ -144,9 +147,11 @@ Training, validation, and final evaluation seeds must be disjoint. No final eval
 The hybrid contains:
 
 - A frozen PPO policy encoder.
-- A trainable projector that maps one PPO latent vector into a fixed number of Gemma embedding vectors (soft prompt tokens).
-- A frozen quantized Gemma instruction model.
-- Trainable LoRA adapters on a limited, explicitly configured set of Gemma modules.
+- A trainable projector that maps one PPO latent vector into a fixed number of
+  LLM embedding vectors (soft prompt tokens), if the selected stack supports it.
+- A frozen quantized instruction model.
+- Trainable adapters only after compatibility is proven; the active prototype
+  does not train them.
 - A compact textual state summary and an explicit list or mask of eligible assignments.
 - A structured output validator and deterministic fallback.
 
@@ -167,30 +172,24 @@ On invalid output, retry at most once with a compact validation error. If the re
 
 ### 5.6 Model dependency
 
-The primary model is `google/gemma-4-12B-it` at immutable revision
-`0e2b1058541244490925fbacf8972041435691ac` (Apache-2.0). The smaller fallback
-is `google/gemma-4-E4B-it` at revision
-`a4c2d58be94dda072b918d9db64ee85c8ed34e3f`. The primary remains conditional
-on the deferred target-GPU memory, latency, and cost measurements.
+The active directive prototype pins the official upstream identity
+`Qwen/Qwen3.5-2B` and the Apache-labeled GGUF candidate
+`bartowski/Qwen_Qwen3.5-2B-GGUF` at immutable revision
+`7d26695454df6de5fbcce2e58681e62dae06ce43`. It uses
+`Qwen_Qwen3.5-2B-Q8_0.gguf` with SHA-256
+`be647507ce6cde229b838924d47bfff9763171105563f7f908670dae57c4dbe2`, served
+through llama.cpp with an 8,192-token context, full permitted GPU offload,
+deterministic decoding, and reasoning disabled (`--reasoning off`, budget `0`).
 
-Gemma 4 uses additional token-identity embeddings at every transformer layer.
-Arbitrary projected `inputs_embeds` therefore must be paired with explicit
-`per_layer_inputs`; the soft-token positions use zero per-layer identity inputs.
-This route produced projector and LoRA gradients in a tiny random model. The
-authoritative run will use NF4 double quantization, BF16 compute, and rank-8
-LoRA on the attention `q`, `k`, `v`, and `o` projections.
+This prototype uses the Qwen model as a frozen actioner. Qwen weights, LoRA
+adapters, and projected soft tokens are not trained here; the existing PPO
+adaptation updates only the child PPO policy. Any future projector/LoRA path
+must first verify the exact model/runtime boundary rather than infer it from a
+toy gradient probe.
 
-Before dataset generation, run a compatibility spike that locks:
-
-- Exact Hugging Face repository ID and immutable revision.
-- License acceptance and science-fair redistribution/display constraints.
-- Quantization format and inference library.
-- Availability of embedding-level soft prompt injection.
-- LoRA compatibility with quantized weights.
-- GPU memory required for training and inference.
-- Structured-output validity and decision latency.
-
-If 12B training cannot fit the time or budget, keep the same architecture and fine-tune a 3B-4B model. Prompt-only inference is not the selected fallback. Record any model substitution before final evaluation.
+Before the full run, preflight locks and checks model identity, file digest,
+quantization, prompt/template digests, all four directive classes, strict JSON
+validity, directive sensitivity, and the configured p95 latency ceiling.
 
 ## 6. Metrics and evaluation protocol
 
@@ -230,8 +229,9 @@ Do not combine metrics after observing results to manufacture a favorable score.
 2. Run its smallest environment and render one episode.
 3. Record observations, actions, assignment events, rewards, and state-cloning support.
 4. Verify cloud training and local development environments.
-5. Lock the Gemma checkpoint or invoke the smaller-model fallback.
-6. Prove that projected embeddings and quantized LoRA can complete one forward/backward step.
+5. Lock the Qwen GGUF checkpoint and verify the pinned llama.cpp runtime.
+6. Keep projected embeddings and quantized LoRA as deferred checks unless the
+   trainable connector path is explicitly reopened.
 
 Exit criterion: a written compatibility report and a tiny smoke run. Do not build the full hybrid before this passes.
 
@@ -256,7 +256,8 @@ Exit criterion: a versioned dataset manifest and evidence that rollout labels so
 
 ### Phase 4: hybrid training
 
-1. Train the projector and LoRA adapters while freezing PPO and base Gemma weights.
+1. If the trainable research path is reopened, train the projector and adapters
+   while freezing PPO and base LLM weights.
 2. Select checkpoints only on validation data.
 3. Track training loss, assignment accuracy, JSON validity, and validation rollout score.
 4. Test deterministic decoding settings and fallback behavior.
@@ -419,7 +420,8 @@ Major risks:
 - Simulator: TA-RWARE repository linked above.
 - Demonstration: simulation only; dashboard optional.
 - Compute: cloud; under USD 50.
-- LLM: quantized Gemma-family 12B candidate from Hugging Face, with a smaller fine-tuned model as fallback.
+- LLM: pinned Qwen3.5-2B Q8 GGUF for the active directive prototype; do not
+  substitute another artifact after compatibility testing fails.
 - Architecture: projected PPO latent tokens plus readable state and constraints.
 - Controller input: one centralized, typed global observation shared by every
   controller; PPO produces one joint destination action for all agents.
@@ -454,8 +456,8 @@ Major risks:
 - Application interfaces: Typer CLI and YAML/Pydantic configuration.
 - PPO implementation: Stable-Baselines3 and SB3-Contrib 2.9.0, with the
   compatibility adapter and joint-conflict projection described above.
-- Gemma dependency: `google/gemma-4-12B-it@0e2b105...`, with
-  `google/gemma-4-E4B-it@a4c2d58...` as the budget fallback.
+- Qwen dependency: `bartowski/Qwen_Qwen3.5-2B-GGUF@7d26695454df6de5fbcce2e58681e62dae06ce43`,
+  file `Qwen_Qwen3.5-2B-Q8_0.gguf`, pinned SHA-256 recorded above.
 - Code quality: Ruff, standard basedpyright, `jaxtyping`, and pytest.
 - Cloud workflow: repository CLI on RunPod, not notebook-only training.
 - Source hosting: public GitHub repository using short branches and pull
@@ -477,15 +479,17 @@ These are implementation discoveries, not open product preferences:
 - Confirm the environment's exact task-assignment action model.
 - Confirm whether simulator state can be cloned for candidate rollouts.
 - Confirm standard layout names and choose the smallest meaningful primary configuration.
-- Verify the exact Hugging Face Gemma model ID; do not assume "Gemma 4 12B" exists under that name.
-- Verify quantized LoRA and soft-token injection with the selected stack.
+- Verify the exact Hugging Face Qwen GGUF identity and compatibility with the
+  pinned llama.cpp runtime.
+- Verify quantized LoRA and soft-token injection only if the future trainable
+  connector path is resumed; the active prototype must not claim this support.
 - Benchmark memory, latency, and estimated cloud cost before generating the full dataset.
 - Define numeric candidate count, rollout horizon, score weights, PPO training budget, and seed partitions after the compatibility measurements; commit them before final data generation or evaluation.
 
 ## 14. Isolated directive-demo exception
 
-`plan.md` defines a separate neural-directive plus frozen-Gemma actioner demo.
-The prototype is deliberately unscored and does not fine-tune Gemma, inject soft
+`plan.md` defines a separate neural-directive plus frozen-LLM actioner demo.
+The prototype is deliberately unscored and does not fine-tune the Qwen model, inject soft
 tokens, change the main primary metric, consume held-out research seeds, or
 complete any main-project phase gate. Its Phase 2 directive catalog is frozen as four
 controller-visible commands: `wait`, `service-requested-shelf`,
@@ -505,8 +509,8 @@ schema-v3 replacement checkpoint passed the original seed and coverage gates;
 the schema-v1/v2 checkpoints remain immutable reference artifacts.
 The active prototype YAML is now composed by responsibility rather than copied
 across a schema-numbered file ladder. `ppo-model.yaml` owns the reusable PPO
-architecture, `llm-actioner.yaml` owns the frozen Gemma/prompt/runtime contract,
-and separate descriptive files own baseline training, Gemma-in-the-loop PPO
+architecture, `llm-actioner.yaml` owns the frozen Qwen/prompt/runtime contract,
+and separate descriptive files own baseline training, frozen-LLM PPO
 fine-tuning, and evaluation runs. The evaluation file is shared by preflight,
 the matched demo, and explicit selection/confirmation/final comparisons. The
 catalog, prompt, and probe remain separate immutable support contracts.
@@ -515,12 +519,11 @@ versions and digests; removing the obsolete input YAML files does not change
 the evidence those records describe.
 The current PPO artifact contract replaces each fixed one-hidden-layer branch with
 separate policy and value `Mlp` modules whose common positive `hidden_sizes`
-sequence comes from `ppo-model.yaml`. The active model config declares `[64]`,
-so its effective depth and width match schema v3; this is infrastructure for
-controlled later architecture changes, not evidence that a larger policy is
-better. Schema-v1-v3 manifests and checkpoints retain their original digests
-and load through an explicit legacy state-key migration. No schema-v4 PPO has
-been trained or validated, so schema v3 remains the active measured checkpoint.
+sequence comes from `ppo-model.yaml`. The active refresh config declares exactly
+`[256, 256, 256, 256]`, uses 100,000 parent timesteps, and requires CUDA. The
+historical schema-v1-v4 manifests and checkpoints retain their original digests
+and load through explicit legacy migrations; the new schema-v5 artifacts must
+use separate versioned output directories and cannot overwrite them.
 Phase 6 adds a matched, unscored runner that verifies the catalog, behavior,
 probe, preflight, and PPO checkpoint digests before resetting TA-RWARE, then
 runs one headless deterministic-executor episode and one fresh rendered Gemma
@@ -530,35 +533,38 @@ JSONL and atomic small summaries under an ignored run directory. The live
 the executor's three and required 361 deterministic fallbacks for directive
 effect violations. This negative result is evidence for this prototype only and
 does not advance the main research phases or claim an improvement.
-The inference boundary remains a replaceable `ModelBackend`; the implementation
-continues to use the pinned llama.cpp E4B GGUF runtime. A compact prompt failed
-the preflight, so the proven wording was retained with dynamically derived role
-groups. The passing rerun achieved 5/5 validity, 6/6 sensitivity, and 3.538 s
-p95 against the 3.92 s limit. No alternate inference dependency was added.
+The inference boundary remains a replaceable `ModelBackend`; the active
+implementation uses the pinned Qwen3.5-2B Q8 GGUF through llama.cpp with an
+8,192-token context, full permitted GPU offload, deterministic decoding, and
+reasoning disabled. Compatibility smoke testing loaded the model and returned
+strict JSON on the RTX 4050; the full four-class preflight remains a run gate.
 The active LLM actioner selects the separate, digest-verified few-shot prompt
 contract. The byte-stable legacy builder remains internal for historical prompt
 verification, but it no longer has an active YAML run configuration.
 The frozen directive catalog still owns `description` for artifact identity,
-logging, and fallback reasons; the new prompt spec owns one richer `instruction`
-and one synthetic five-agent example for each behavior key. Few-shot requests
-use four user/assistant example pairs before the full live-state request and do
-not expose the catalog description. This is infrastructure only: no schema-v3
-Gemma preflight or matched episode has run, so the 2026-08-22 negative result
-remains the latest prototype evidence and no improvement is claimed.
-An additional prototype-only extension may warm-start a copy of a frozen
-schema-v4 directive PPO and perform 1,024 on-policy steps with the frozen Gemma
-actioner in the environment. This is PPO adaptation, not Gemma weight
-fine-tuning: the model file, prompt contract, decoding settings, catalog, and
-parent PPO checkpoint remain immutable. Its run configuration uses only
-parent training seeds, splits parent validation seeds into selection and
-confirmation partitions, and reserves seed 9100 for a final descriptive
-comparison. Gemma failures use the same strict validator and deterministic
-fallback as evaluation. PPO receives simulator reward minus a predeclared
-0.001 fallback penalty, while reported episode returns remain unmodified. The
-parent and adapted policies stay separate. The code and offline fake-actioner
-tests exist, but no schema-v4 PPO training, live schema-v4 preflight,
-adaptation, selection, confirmation, or final run has occurred, so this adds no
-experimental evidence.
+logging, and fallback reasons; the active prompt spec owns richer instructions
+and an external TXT template with three examples for each behavior key. Few-shot
+requests use twelve user/assistant example pairs before the full live-state
+request and do not expose experiment seeds. The active adaptation is PPO
+fine-tuning with frozen Qwen inference, not Qwen weight fine-tuning: the model
+file, prompt contract, decoding settings, catalog, and parent PPO checkpoint
+remain immutable. It uses 4,096 environment steps, parent training seeds,
+selection/confirmation partitions, matched-demo seed `9300`, and final seed
+`9200`. Strict validation, fallback accounting, KL protection, and checkpoint
+provenance remain mandatory; no active parent/adaptation/evaluation result has
+been claimed yet.
 Both checkpoints and manifests are prototype-only artifacts and cannot become
 the PPO checkpoint for the main scientific experiment. Future action sequences
 remain an unresolved main-project extension.
+
+### 2026-08-24 active prototype refresh
+
+The prior full run and its research-log conclusion are historical and remain
+unchanged. The new active experiment is versioned separately: PPO uses exactly
+four hidden layers of 256 units and 100,000 configured parent timesteps on
+CUDA; frozen-LLM adaptation uses 4,096 environment steps. The actioner uses the
+pinned Qwen3.5-2B Q8 GGUF and an external TXT prompt with three diverse examples
+per directive (12 total). Reasoning is explicitly disabled. Confirmation keeps
+seeds `8202-8203`, the matched demo uses fresh seed `9300`, and final seed
+`9200` remains untouched until confirmation passes. See the new dated research
+log entry for implementation evidence and the pending run sequence.

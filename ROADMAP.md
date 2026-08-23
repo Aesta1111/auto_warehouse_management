@@ -28,11 +28,13 @@ workflow, roadmap, and experiment-recording rules from `README.md`.
 - [x] Test deterministic reset and replay with fixed seeds.
 - [x] Test simulator snapshot/restore; document the replay fallback if needed.
 - [x] Verify Stable-Baselines3 and action-masking compatibility.
-- [x] Lock the exact Hugging Face Gemma repository ID and revision.
-- [ ] Test quantized inference, embedding injection, and one LoRA forward/backward
-  step on target GPU hardware.
-- [ ] Measure GPU memory, latency, and estimated training cost.
-- [ ] Invoke and document the 3B-4B fallback if 12B violates the budget.
+- [x] Lock the exact Hugging Face Qwen repository ID, revision, filename, and
+  SHA-256 for the active prototype.
+- [x] Test quantized inference, strict JSON output, CUDA availability, and one
+  Torch forward/backward smoke step on target GPU hardware.
+- [ ] Measure the full-run GPU memory, latency, and estimated training cost.
+- [ ] Stop for review if the pinned Qwen artifact fails the compatibility gate;
+  do not silently substitute another model.
 
 Exit gate: a dated compatibility report contains pinned dependencies, measured
 constraints, a working simulator smoke command, and a working tiny model step.
@@ -55,25 +57,26 @@ complete, and its seeds remain excluded from later scientific evaluation.
 - [x] Complete the Phase 4 fake-actioner success and fallback episode gate.
 - [x] Implement the Phase 6 matched episode runner, flushed JSONL records,
   atomic summaries, and frozen-artifact verification.
-- [x] Run and record the live 500-step executor/Gemma matched demonstration
+- [x] Run and record the live 500-step executor/previous-LLM matched demonstration
   gate; this remains prototype evidence and does not score the main project.
 - [x] Add a schema-v3 prompt-only contract with four validated synthetic
   user/assistant examples while preserving the v1 catalog and schema-v2 prompt.
 - [x] Add offline infrastructure for a separately versioned, warm-started PPO
-  adaptation using frozen Gemma, shared execution, provenance, KL/fallback
+  adaptation using a frozen LLM, shared execution, provenance, KL/fallback
   gates, and paired partitioned evaluation.
-- [x] Add schema-v4 configurable-MLP PPO infrastructure with an initial `[64]`
-  architecture and legacy schema-v2/v3 checkpoint loading.
+- [x] Add configurable-MLP PPO infrastructure with legacy checkpoint loading;
+  the active refresh now uses schema-v5 `[256, 256, 256, 256]`.
 - [x] Replace the prototype's copied version ladder with composed PPO-model,
   LLM-actioner, PPO-training, PPO-fine-tuning, and evaluation run configs.
-- [x] Train and validate the schema-v4 deterministic PPO parent without
-  overwriting the schema-v3 evidence.
-- [ ] Run and record the schema-v4 all-directive preflight and a separately
-  versioned matched episode before interpreting the few-shot prompt.
-- [x] Only if that baseline retains a material executor-transfer gap, run the
-  1,024-step Gemma-in-the-loop PPO adaptation on training seeds.
+- [x] Preserve the historical deterministic PPO parent without overwriting
+  earlier evidence.
+- [ ] Run and record the Qwen all-directive preflight and a separately versioned
+  matched episode before interpreting the refreshed few-shot prompt.
+- [ ] After the refreshed parent/preflight gates pass, run the 4,096-step
+  frozen-LLM PPO adaptation on training seeds.
 - [ ] Compare parent/adapted checkpoints on selection and confirmation seeds;
-  expose seed 9100 only after the confirmation gate passes.
+  run the matched demo on `9300` and expose final seed `9200` only after the
+  confirmation gate passes.
 
 Phase 2 of the prototype passed on 2026-08-13: 2,500 states checked across
 seeds 8000-8004 with zero uncovered states, executor failures, or effect
@@ -146,6 +149,18 @@ wait/service sensitivity cases, and the matched 500-step demo completed. The
 1,024-step adaptation passed selection but failed the disjoint confirmation
 gate: the child completed fewer Gemma-backed tasks and used more fallbacks on
 seeds 8202-8203. Seed 9100 was not run. See [the full-run research log](docs/research-log/2026-08-23-directive-ppo-gemma-full-run.md).
+
+On 2026-08-24, a new versioned refresh was implemented without modifying the
+historical run or its artifacts. The active parent config is exactly
+`[256, 256, 256, 256]` with 100,000 configured CUDA timesteps; the frozen-LLM
+adaptation is 4,096 environment steps. The active actioner is the pinned
+Apache-labeled Qwen3.5-2B Q8 GGUF, with an 8k context, full permitted offload,
+deterministic decoding, and reasoning disabled. Its external prompt has three
+examples per directive (12 total), and preflight now requires all four directive
+classes plus exact prompt/template digests. The model loaded successfully on the
+RTX 4050 and returned a strict JSON-schema response, but the full parent,
+preflight, adaptation, and gated evaluation sequence is still pending; no new
+performance result is claimed.
 
 ## Phase 2: runnable project foundation
 

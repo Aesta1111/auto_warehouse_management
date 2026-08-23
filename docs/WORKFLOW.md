@@ -41,7 +41,7 @@ bash scripts/run_phase1_cloud.sh
 
 The script installs the exact upstream Linux pathfinder commit for the simulator
 comparison, then uses `--no-sync` so the Windows compatibility override does not
-replace it. It records Linux trace hashes and the quantized Gemma A40 summary in
+replace it. It records Linux trace hashes and the quantized LLM A40 summary in
 `results/summaries/`. Copy those small summaries and the actual pod cost into a
 new research-log entry before stopping the pod.
 
@@ -136,8 +136,8 @@ RunPod, and the result is recorded in the PR and research log.
 - Reusable component configs own model/actioner identity; runnable configs
   reference them by repository-relative path instead of copying their fields.
 - The directive prototype uses `ppo-model.yaml`, `llm-actioner.yaml`,
-  `ppo-training-run.yaml`, `ppo-gemma-fine-tuning-run.yaml`, and
-  `ppo-gemma-evaluation-run.yaml`. One evaluation config is selected with an
+  `ppo-training-run.yaml`, `ppo-llm-fine-tuning-run.yaml`, and
+  `ppo-llm-evaluation-run.yaml`. One evaluation config is selected with an
   explicit `selection`, `confirmation`, or `final` CLI partition.
 - Each run writes the fully resolved configuration; the original YAML alone is
   insufficient provenance.
@@ -242,7 +242,7 @@ show local time. Never overwrite an authoritative run directory.
 - Read tokens from environment variables or the platform secret manager.
 - Provide `.env.example` names only; never commit `.env`.
 - Scrub tokens from command logs and exception output.
-- Review TA-RWARE, Gemma, dataset, and transitive license terms before adding the
+- Review TA-RWARE, Qwen/LLM, dataset, and transitive license terms before adding the
   MIT project license.
 - Record third-party attribution and immutable source revisions.
 

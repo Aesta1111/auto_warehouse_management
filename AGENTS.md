@@ -30,9 +30,9 @@ Then read the documents relevant to the task:
   roadmap content elsewhere.
 - Record meaningful investigations, failed experiments, and GPU jobs using the
   research-log template.
-- Do not invent TA-RWARE or Gemma interfaces that the compatibility spike has
+- Do not invent TA-RWARE or LLM interfaces that the compatibility spike has
   not verified.
 
 ## Immediate next task
 
-Perform the compatibility spike in `PROJECT_SPEC.md`: inspect and pin TA-RWARE, run its smallest example, document its interfaces, and verify an exact Hugging Face Gemma checkpoint plus quantized LoRA/soft-token feasibility before scaffolding the full system.
+Perform the compatibility spike in `PROJECT_SPEC.md`: inspect and pin TA-RWARE, run its smallest example, document its interfaces, and verify the pinned Qwen3.5-2B Q8 GGUF through the local llama.cpp endpoint before scaffolding or interpreting the refreshed prototype. Keep Qwen weights frozen; do not infer LoRA or soft-token feasibility from this runtime smoke test.
