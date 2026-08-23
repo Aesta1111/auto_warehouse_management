@@ -107,13 +107,15 @@ versions, validation metrics, and the checkpoint SHA-256. Gemma/actioner phases
 are intentionally not included in either command.
 
 Prepare and start the real local Gemma/llama.cpp actioner on a Windows NVIDIA
-machine from two terminals. The first command downloads the pinned 5.15 GB
-GGUF and the pinned CUDA 12.4 llama.cpp runtime into the ignored
+machine from two terminals. The `start-gemma` subcommand downloads the pinned
+5.15 GB GGUF and the pinned CUDA 12.4 llama.cpp runtime into the ignored
 `.local_runtime/` directory, then serves it with partial GPU offload:
 
 ```powershell
-.\scripts\start_local_gemma.ps1 -Prepare
+uv run python scripts/run_directive_demo.py start-gemma --prepare
 ```
+
+Omit `--prepare` when the pinned runtime and model are already present.
 
 Keep that server terminal open. In a second terminal, run the real local
 Gemma preflight separately before the demo:

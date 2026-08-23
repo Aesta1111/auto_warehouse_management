@@ -1307,6 +1307,7 @@ Each script returns exit code zero only when its stated artifact is complete:
 python scripts/probe_directives.py --config configs/demo/directive-probe-v2.yaml --output results/summaries/directive-probe-report-v2.json
 python scripts/train_directive_ppo.py --config configs/demo/directive-ppo-v3.yaml --output results/demo/directive-ppo-v3
 python scripts/probe_gemma_actioner.py --config configs/demo/directive-demo-v2.yaml
+python scripts/run_directive_demo.py start-gemma --prepare
 python scripts/run_directive_demo.py --config configs/demo/directive-demo-v2.yaml
 ```
 
@@ -1319,6 +1320,9 @@ python scripts/run_directive_demo.py --config configs/demo/directive-demo-v2.yam
   used by the refactored demo.
 - `probe_gemma_actioner.py` performs E4B preflight and directive sensitivity;
   it exits with a distinct documented code indicating that E2B should be used.
+- `run_directive_demo.py start-gemma` delegates preparation and serving to the
+  pinned `start_local_gemma.ps1` launcher. `--prepare` downloads missing model
+  and runtime artifacts; omit it when they are already present.
 - `run_directive_demo.py` requires a passing actioner preflight artifact for the
   selected model, runs both matched episodes, and prints artifact locations.
 
