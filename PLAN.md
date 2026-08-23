@@ -49,9 +49,10 @@ evidence yet.
 
 A separately versioned Gemma-in-the-loop PPO adaptation path now exists as
 offline infrastructure. It never updates Gemma weights: it warm-starts a child
-PPO from the immutable schema-v3 checkpoint, executes sampled non-wait
+PPO from a separately trained schema-v4 checkpoint, executes sampled non-wait
 directives through frozen few-shot Gemma, and updates only the child PPO. No
-live adaptation or evaluation has run.
+schema-v4 PPO training, live adaptation, or evaluation has run. Schema v3
+remains the latest measured directive-PPO evidence.
 
 This branch remains isolated from the authoritative projector-and-LoRA
 experiment:
@@ -142,10 +143,11 @@ PPO policy quality.
 
 ### 2.3 Optional frozen-Gemma PPO adaptation
 
-The original 25,088-step deterministic PPO training remains the pretraining
-control and must not be repeated or overwritten for this extension. After a
-schema-v3 all-directive preflight and matched baseline pass their declared
-gates, a separate configuration may warm-start a copy for 1,024 environment
+The original 25,088-step deterministic PPO training remains historical control
+evidence and must not be overwritten for this extension. First train the
+separately versioned schema-v4 `[64]` MLP parent. After its schema-v4
+all-directive preflight and matched baseline pass their declared gates, the v2
+adaptation configuration may warm-start a copy for 1,024 environment
 steps. Here, "Gemma fine-tuning" means PPO fine-tuning with frozen Gemma in the
 environment; Gemma parameters, prompt, quantization, and decoding stay frozen.
 
@@ -162,7 +164,7 @@ the predeclared `0.001` penalty for any structured Gemma failure because the
 deterministic fallback would otherwise hide that failure from PPO. Evaluation
 always reports raw simulator reward.
 
-The v1 adaptation uses four 256-step rollouts, learning rate `3e-5`, four PPO
+The v2 adaptation uses four 256-step rollouts, learning rate `3e-5`, four PPO
 epochs, within-update target KL `0.01`, and maximum divergence `0.05` from the
 parent over collected states. It uses a fresh optimizer. The child checkpoint
 and manifest record parent, prompt, preflight, model, catalog, behavior, seed,
@@ -321,8 +323,10 @@ Its `step(directive_id)` operation must:
 4. Step TA-RWARE and return the unmodified summed simulator reward.
 5. Log the directive, executor output, and any executor failure.
 
-Train SB3-Contrib `MaskablePPO` with a small MLP policy using one 64-unit hidden
-layer for the policy and value networks. Use prototype-only training seeds
+The measured schema-v1-v3 policies use separate one-64-unit policy and value
+paths. Schema v4 expresses both as independent `Mlp` modules sharing one
+config-owned `hidden_sizes` sequence; the initial `[64]` setting preserves the
+effective prior architecture. Use prototype-only training seeds
 beginning at `8100`, separate validation seeds, and an initial budget of 25,000
 timesteps. Keep all PPO hyperparameters in a versioned config.
 
@@ -402,7 +406,8 @@ configs/demo/
 |-- directives-v1.yaml
 |-- directive-probe-v2.yaml
 |-- directive-ppo-v3.yaml       # Plain-PyTorch/Fabric replacement
-`-- directive-demo-v2.yaml
+|-- directive-ppo-v4.yaml       # Configurable MLP successor; untrained
+`-- directive-demo-v4.yaml      # PPO-v4/few-shot preflight and demo
 src/warehouse_ai/demo/
 |-- contracts/         # Phase-grouped immutable records and configuration
 |-- directives/        # Directive table, engine, and live probe
@@ -871,6 +876,11 @@ hyperparameters, architecture/implementation identities, checkpoint SHA-256,
 validation summary, Git commit, dirty flag, and UTC timestamp. Loading fails if
 any current identity differs.
 
+Schema v4 additionally requires the complete positive `hidden_sizes` sequence,
+uses it in the architecture digest, and declares the
+`directive-ppo-mlp-v1` implementation. Schema-v2/v3 manifests keep their scalar
+`hidden_size` identity and are never rewritten.
+
 ### 7.7 PPO model and buffer ownership refactor (Phase 3.5)
 
 Phase 3.5 is a controlled breaking refactor of the Phase 3 PPO implementation.
@@ -931,15 +941,25 @@ class PpoLossTerms:
     clip_fraction: Tensor
 ```
 
-The trainable model is one Lightning module:
+The trainable model is a plain PyTorch module; Fabric remains training
+orchestration only:
 
 ```python
-class PpoModel(pl.LightningModule):
+class Mlp(nn.Module):
+    def __init__(
+        self,
+        input_size: int,
+        output_size: int,
+        hidden_sizes: Sequence[int],
+    ) -> None: ...
+
+
+class PpoModel(nn.Module):
     def __init__(
         self,
         observation_size: int,
         directive_count: int,
-        hidden_size: int,
+        hidden_sizes: Sequence[int],
         learning_rate: float,
         clip_range: float,
         entropy_coefficient: float,
@@ -964,12 +984,14 @@ class PpoModel(pl.LightningModule):
 
     def evaluate_actions(self, batch: PpoBatch) -> tuple[Tensor, Tensor, Tensor]: ...
     def compute_loss(self, batch: PpoBatch) -> PpoLossTerms: ...
-    def training_step(self, batch: PpoBatch, batch_idx: int) -> Tensor: ...
-    def configure_optimizers(self) -> Optimizer: ...
+    def make_optimizer(self) -> Optimizer: ...
 ```
 
-Use separate 64-unit `tanh` policy and value paths to preserve the declared
-Phase 3 architecture. `forward()` must expose the policy latent explicitly even
+`Mlp.layers` is an `nn.ModuleList` containing every hidden and output linear
+layer. Apply fixed `tanh` only after hidden layers and expose the last hidden
+activation. Schema v4 requires a non-empty positive `hidden_sizes` sequence and
+uses the same sequence for separate, non-weight-sharing policy and value MLPs.
+`forward()` must expose the policy latent explicitly even
 though this directive demo does not send it to Gemma. Invalid directive logits
 are masked before constructing `torch.distributions.Categorical`; masked
 directives must have exactly zero reported probability. `act(deterministic=True)`
@@ -979,9 +1001,8 @@ seeded PyTorch generator.
 
 `PpoModel.compute_loss()` is the authoritative training calculation.
 It delegates the pure arithmetic to `compute_ppo_loss()` and owns coefficients,
-logging names, and optimizer configuration. `training_step()` remains a thin
-Lightning-compatible call to `compute_loss()`; neither method may collect
-rollouts or access an environment.
+logging names, and optimizer configuration. It may not collect rollouts or
+access an environment.
 
 ```python
 def compute_gae(
@@ -1376,10 +1397,10 @@ Each script returns exit code zero only when its stated artifact is complete:
 
 ```text
 python scripts/probe_directives.py --config configs/demo/directive-probe-v2.yaml --output results/summaries/directive-probe-report-v2.json
-python scripts/train_directive_ppo.py --config configs/demo/directive-ppo-v3.yaml --output results/demo/directive-ppo-v3
-python scripts/probe_gemma_actioner.py --config configs/demo/directive-demo-v2.yaml
+python scripts/train_directive_ppo.py --config configs/demo/directive-ppo-v4.yaml --output results/demo/directive-ppo-v4
+python scripts/probe_gemma_actioner.py --config configs/demo/directive-demo-v4.yaml
 python scripts/run_directive_demo.py start-gemma --prepare
-python scripts/run_directive_demo.py --config configs/demo/directive-demo-v2.yaml
+python scripts/run_directive_demo.py --config configs/demo/directive-demo-v4.yaml
 ```
 
 - `probe_directives.py` exercises applicability, executors, and action effects
@@ -1387,8 +1408,9 @@ python scripts/run_directive_demo.py --config configs/demo/directive-demo-v2.yam
   not train.
 - `train_directive_ppo.py` validates the catalog spike output, trains,
   evaluates, and writes a checkpoint manifest. The v1 config reproduces the
-  Phase 3 SB3 reference; the v3 config is the plain-PyTorch/Fabric replacement
-  used by the refactored demo.
+  Phase 3 SB3 reference; v3 is the measured plain-PyTorch/Fabric replacement;
+  v4 is the untrained config-controlled MLP successor and must create new
+  artifacts.
 - `probe_gemma_actioner.py` performs E4B preflight and directive sensitivity;
   it exits with a distinct documented code indicating that E2B should be used.
 - `run_directive_demo.py start-gemma` delegates preparation and serving to the

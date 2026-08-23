@@ -22,6 +22,9 @@ The directive-demo Phase 6 matched runner and its live 500-step gate completed;
 the negative 3/2-task executor/Gemma result remains a separate prototype, not a
 main-project evaluation. Schema-v3 few-shot prompting and frozen-Gemma PPO
 adaptation infrastructure are implemented offline, but neither has a live run.
+The new schema-v4 PPO uses config-controlled MLP hidden sizes and initially
+declares `[64]`; it has not been trained, so schema v3 remains the latest
+validated directive-PPO evidence.
 
 The hybrid improving on PPO is a hypothesis, not a required result. Negative and
 inconclusive findings must be reported without changing the primary metric after
@@ -96,12 +99,16 @@ Train the isolated directive PPO policy with the committed prototype seeds:
 ```powershell
 uv run python scripts/train_directive_ppo.py --config configs/demo/directive-ppo-v1.yaml
 uv run python scripts/train_directive_ppo.py --config configs/demo/directive-ppo-v2.yaml
+uv run python scripts/train_directive_ppo.py --config configs/demo/directive-ppo-v3.yaml
+uv run python scripts/train_directive_ppo.py --config configs/demo/directive-ppo-v4.yaml
 ```
 
 The command writes a small manifest and an ignored checkpoint under
-`results/demo/directive-ppo-v1/` or `results/demo/directive-ppo-v2/`. Version 1
-preserves the SB3 reference; version 2 uses the repository-owned model, buffer,
-GAE, loss, collector, and explicit Lightning Fabric loop required by Phase 3.5.
+the matching versioned directory. Version 1 preserves the SB3 reference;
+versions 2 and 3 preserve the measured repository-owned checkpoints. Version 4
+introduces separate config-driven policy/value MLPs and declares
+`hidden_sizes: [64]`. Running v4 is a full PPO training job, not an ordinary
+quality check, and must write a new artifact rather than overwrite v3.
 Each manifest records catalog and behavior digests, seed partitions, package
 versions, validation metrics, and the checkpoint SHA-256. Gemma/actioner phases
 are intentionally not included in either command.
@@ -124,6 +131,9 @@ Gemma preflight separately before the demo:
 .\.venv\Scripts\python.exe scripts\probe_gemma_actioner.py --config configs\demo\directive-demo-v1.yaml
 ```
 
+The pending few-shot/MLP path instead uses `configs\demo\directive-demo-v4.yaml`
+after the PPO-v4 checkpoint and manifest exist. That live preflight has not run.
+
 The preflight writes the configured report only after checking health, model
 identity, strict responses, directive sensitivity, and p95 latency. An E4B
 failure returns a distinct code recommending an explicitly configured E2B run;
@@ -142,11 +152,11 @@ flushed decision JSONL plus small atomic summaries under a unique
 `results/demo/<run-id>/` directory and never computes a statistical or
 improvement claim.
 
-After producing a passing schema-v3 preflight, the optional PPO adaptation can
+After training PPO v4 and producing a passing schema-v4 preflight, the optional PPO adaptation can
 be started explicitly while the same pinned server remains running:
 
 ```powershell
-uv run python scripts/finetune_directive_ppo_with_gemma.py --config configs/demo/directive-ppo-gemma-finetune-v1.yaml
+uv run python scripts/finetune_directive_ppo_with_gemma.py --config configs/demo/directive-ppo-gemma-finetune-v2.yaml
 ```
 
 This is an estimated one-hour live run and is never part of tests or ordinary
@@ -157,7 +167,7 @@ seed partitions do not match.
 Run paired selection evaluation only after the child manifest exists:
 
 ```powershell
-uv run python scripts/evaluate_gemma_finetuned_ppo.py --config configs/demo/directive-ppo-gemma-eval-selection-v1.yaml
+uv run python scripts/evaluate_gemma_finetuned_ppo.py --config configs/demo/directive-ppo-gemma-eval-selection-v2.yaml
 ```
 
 Use the separate confirmation config only if selection passes. Do not use the

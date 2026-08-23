@@ -503,6 +503,14 @@ optimization components. The 2026-08-22 architecture refactor moved these into
 training composition, and retained SB3 behind a lazy reference adapter. Its
 schema-v3 replacement checkpoint passed the original seed and coverage gates;
 the schema-v1/v2 checkpoints remain immutable reference artifacts.
+A schema-v4 PPO contract now replaces each fixed one-hidden-layer branch with
+separate policy and value `Mlp` modules whose common positive `hidden_sizes`
+sequence is configuration-owned. The initial schema-v4 config declares `[64]`,
+so its effective depth and width match schema v3; this is infrastructure for
+controlled later architecture changes, not evidence that a larger policy is
+better. Schema-v1-v3 manifests and checkpoints retain their original digests
+and load through an explicit legacy state-key migration. No schema-v4 PPO has
+been trained or validated, so schema v3 remains the active measured checkpoint.
 Phase 6 adds a matched, unscored runner that verifies the catalog, behavior,
 probe, preflight, and PPO checkpoint digests before resetting TA-RWARE, then
 runs one headless deterministic-executor episode and one fresh rendered Gemma
@@ -526,8 +534,8 @@ use four user/assistant example pairs before the full live-state request and do
 not expose the catalog description. This is infrastructure only: no schema-v3
 Gemma preflight or matched episode has run, so the 2026-08-22 negative result
 remains the latest prototype evidence and no improvement is claimed.
-An additional prototype-only extension may warm-start a copy of the frozen
-schema-v3 directive PPO and perform 1,024 on-policy steps with the frozen Gemma
+An additional prototype-only extension may warm-start a copy of a frozen
+schema-v4 directive PPO and perform 1,024 on-policy steps with the frozen Gemma
 actioner in the environment. This is PPO adaptation, not Gemma weight
 fine-tuning: the model file, prompt contract, decoding settings, catalog, and
 parent PPO checkpoint remain immutable. Its versioned configuration uses only
@@ -537,8 +545,9 @@ comparison. Gemma failures use the same strict validator and deterministic
 fallback as evaluation. PPO receives simulator reward minus a predeclared
 0.001 fallback penalty, while reported episode returns remain unmodified. The
 parent and adapted policies stay separate. The code and offline fake-actioner
-tests exist, but no live schema-v3 preflight, adaptation, selection,
-confirmation, or final run has occurred, so this adds no experimental evidence.
+tests exist, but no schema-v4 PPO training, live schema-v4 preflight,
+adaptation, selection, confirmation, or final run has occurred, so this adds no
+experimental evidence.
 Both checkpoints and manifests are prototype-only artifacts and cannot become
 the PPO checkpoint for the main scientific experiment. Future action sequences
 remain an unresolved main-project extension.

@@ -62,7 +62,11 @@ complete, and its seeds remain excluded from later scientific evaluation.
 - [x] Add offline infrastructure for a separately versioned, warm-started PPO
   adaptation using frozen Gemma, shared execution, provenance, KL/fallback
   gates, and paired partitioned evaluation.
-- [ ] Run and record the schema-v3 all-directive preflight and a separately
+- [x] Add schema-v4 configurable-MLP PPO infrastructure with an initial `[64]`
+  architecture and legacy schema-v2/v3 checkpoint loading.
+- [ ] Train and validate the schema-v4 deterministic PPO parent without
+  overwriting the schema-v3 evidence.
+- [ ] Run and record the schema-v4 all-directive preflight and a separately
   versioned matched episode before interpreting the few-shot prompt.
 - [ ] Only if that baseline retains a material executor-transfer gap, run the
   1,024-step Gemma-in-the-loop PPO adaptation on training seeds.
@@ -111,12 +115,19 @@ directive catalog, and its four compact examples use no experiment seed state.
 The existing schema-v2 preflight and matched-run artifacts remain authoritative
 until a later live schema-v3 investigation receives its own research-log entry.
 
+Schema-v4 PPO architecture infrastructure was added on 2026-08-23 without a
+full training run. Policy and value remain separate, use a config-owned MLP
+shape, and initially retain the effective `[64]` schema-v3 architecture. The
+schema-v3 checkpoint remains the latest validated evidence until a separately
+versioned schema-v4 training run is completed and recorded.
+
 Gemma-in-the-loop PPO adaptation infrastructure was added on 2026-08-23 without
 starting llama.cpp. It warm-starts a separate child policy, uses the production
 validation/fallback service, records simulator and learning rewards separately,
 guards divergence from the parent, and provides paired selection, confirmation,
-and final evaluation configs. Gemma remains frozen. These implementation gates
-do not establish that adaptation is useful.
+and final evaluation configs. Its v2 path now fails closed unless the untrained
+schema-v4 parent and matching schema-v4 preflight exist. Gemma remains frozen.
+These implementation gates do not establish that adaptation is useful.
 
 ## Phase 2: runnable project foundation
 

@@ -199,13 +199,21 @@ the lowest canonical agent's choice, changes later duplicates to no-op, and logs
 each repair. Strict controller decisions continue through rejection-based
 validation.
 
-The isolated directive-demo exception has a separate schema-v3 PPO backend.
+The isolated directive-demo exception has a separate repository-owned PPO backend.
 `demo/ppo/policy.py` selects a lazy policy adapter: the active checkpoint uses a
 plain PyTorch model, while the preserved schema-v1 SB3 reference imports SB3
 only when requested. Rollout math, storage, collection, training, validation,
 and model structure have one-way module boundaries under `demo/ppo/`. Lightning
 Fabric is imported only inside training orchestration. This prototype boundary
 does not replace the main project's PPO architecture decision.
+
+The untrained schema-v4 extension composes independent policy and value `Mlp`
+modules from a shared config-owned `hidden_sizes` sequence. Linear layers live
+in `nn.ModuleList`, `tanh` is applied only between layers, and the final hidden
+activation remains the exposed latent. Its initial `[64]` setting is
+mathematically equivalent to the schema-v3 branch shape. Historical schema-v2
+and schema-v3 checkpoints keep their identities and load through an explicit
+one-layer state-key migration.
 
 The rest of the demo follows the same small-boundary layout:
 
