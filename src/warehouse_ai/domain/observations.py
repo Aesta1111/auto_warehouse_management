@@ -88,6 +88,12 @@ class WarehouseObservation(DomainModel):
     Tuples are intentional here. Agent and shelf order defines model feature
     meaning, so allowing callers to mutate these collections after validation
     would make an observation's encoded representation unstable.
+
+    ``goal_positions``, when supplied, gives one row-column position per entry
+    in ``goal_destination_ids`` (same index order) for controllers that need
+    goal coordinates, such as the Manhattan-distance heuristic. It is not part
+    of ``encode()``'s pinned feature vector, matching TA-RWARE's own global
+    observation, which likewise omits goal coordinates.
     """
 
     step: NonNegativeInt
@@ -96,6 +102,7 @@ class WarehouseObservation(DomainModel):
     agents: tuple[AgentObservation, ...]
     shelves: tuple[ShelfObservation, ...]
     goal_destination_ids: tuple[PositiveInt, ...]
+    goal_positions: tuple[Position, ...] = ()
 
     @model_validator(mode="after")
     def validate_canonical_order(self) -> WarehouseObservation:
@@ -114,6 +121,12 @@ class WarehouseObservation(DomainModel):
             sorted(set(self.goal_destination_ids))
         ):
             raise ValueError("goals must have unique ascending destination IDs")
+        if self.goal_positions and len(self.goal_positions) != len(
+            self.goal_destination_ids
+        ):
+            raise ValueError(
+                "goal_positions must be empty or match goal_destination_ids"
+            )
         return self
 
     @property

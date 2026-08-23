@@ -1,0 +1,9 @@
+cd "d:\auto_warehouse_management-master (1)\auto_warehouse_management-master"
+
+uv run python scripts/demo_showcase.py --fullscreen --shelf-rows 1 --shelf-columns 7 --agvs 10 --pickers 5
+
+uv run python scripts/demo_showcase.py --fullscreen --shelf-rows 2 --shelf-columns 11 --agvs 14 --pickers 7
+
+uv run python scripts/demo_showcase.py --fullscreen --shelf-rows 1 --shelf-columns 7 --max-steps 2000 --fps 6
+
+uv run python scripts/demo_showcase.py --shelf-rows 1 --shelf-columns 7

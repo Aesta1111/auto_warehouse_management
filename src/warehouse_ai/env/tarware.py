@@ -287,6 +287,10 @@ class TarwareEnvWrapper:
             )
 
         goal_count = len(warehouse.goals)
+        goal_positions = tuple(
+            self._position(warehouse.action_id_to_coords_map[destination_id])
+            for destination_id in range(1, goal_count + 1)
+        )
         shelves: list[ShelfObservation] = []
         for destination_id in range(goal_count + 1, warehouse.action_size):
             row, column = warehouse.action_id_to_coords_map[destination_id]
@@ -307,6 +311,7 @@ class TarwareEnvWrapper:
             agents=tuple(agents),
             shelves=tuple(shelves),
             goal_destination_ids=tuple(range(1, goal_count + 1)),
+            goal_positions=goal_positions,
         )
 
     @staticmethod

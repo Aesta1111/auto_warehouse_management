@@ -50,6 +50,7 @@ def observation() -> WarehouseObservation:
             ),
         ),
         goal_destination_ids=(1, 2),
+        goal_positions=(Position(row=0, column=0), Position(row=0, column=5)),
     )
 
 
