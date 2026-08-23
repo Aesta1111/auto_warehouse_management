@@ -1,4 +1,4 @@
-"""Train and freeze a versioned isolated directive PPO prototype."""
+"""Train and freeze the configured isolated directive PPO prototype."""
 
 from __future__ import annotations
 
@@ -8,12 +8,13 @@ from pathlib import Path
 
 from warehouse_ai.demo.artifacts import write_json_atomic
 from warehouse_ai.demo.directives import build_registry
-from warehouse_ai.demo.contracts.base import load_yaml_config
+from warehouse_ai.demo.contracts.configuration import load_ppo_training_run
 from warehouse_ai.demo.contracts.directives import DirectiveCatalog
-from warehouse_ai.demo.contracts.ppo import (
-    PpoConfig,
-)
 from warehouse_ai.demo.ppo.service import train_directive_ppo
+from warehouse_ai.demo.ppo.training import PPO_CHECKPOINT_NAME
+
+
+PPO_MANIFEST_NAME = "ppo-training-manifest.json"
 
 
 def _repository_root() -> Path:
@@ -39,28 +40,23 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     root = _repository_root()
-    config = load_yaml_config(_repository_path(root, args.config), PpoConfig)
+    loaded = load_ppo_training_run(args.config, root)
+    config = loaded.runtime
     catalog = DirectiveCatalog.load(_repository_path(root, config.vocabulary_path))
     registry = build_registry(catalog)
-    default_output = Path(f"results/demo/directive-ppo-v{config.schema_version}")
-    output_directory = _repository_path(root, args.output or default_output)
+    output_directory = _repository_path(
+        root, args.output or loaded.run.output_directory
+    )
     manifest = train_directive_ppo(
         config,
         catalog,
         registry,
         output_directory,
     )
-    manifest_path = (
-        output_directory / f"directive-ppo-manifest-v{config.schema_version}.json"
-    )
+    manifest_path = output_directory / PPO_MANIFEST_NAME
     write_json_atomic(manifest_path, manifest)
     print(json.dumps(manifest.model_dump(mode="json"), indent=2, sort_keys=True))
-    checkpoint_name = (
-        "directive-ppo-v1.zip"
-        if config.schema_version == 1
-        else f"directive-ppo-v{config.schema_version}.pt"
-    )
-    print(f"checkpoint: {output_directory / checkpoint_name}")
+    print(f"checkpoint: {output_directory / PPO_CHECKPOINT_NAME}")
     print(f"manifest: {manifest_path}")
 
 

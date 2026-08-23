@@ -35,6 +35,7 @@ from warehouse_ai.demo.ppo.validation import (
 
 VALIDATION_INTERVAL = 5_000
 HIDDEN_SIZE = 64
+PPO_CHECKPOINT_NAME = "ppo-policy.pt"
 
 
 def _repository_root() -> Path:
@@ -104,7 +105,7 @@ class PpoTrainingLoop:
         completed_steps = optimizer_steps = selected_steps = selected_updates = 0
         next_validation = VALIDATION_INTERVAL
         best: PpoValidationSummary | None = None
-        checkpoint = output_directory / f"directive-ppo-v{config.schema_version}.pt"
+        checkpoint = output_directory / PPO_CHECKPOINT_NAME
 
         while completed_steps < config.total_timesteps:
             collector.collect(

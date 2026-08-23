@@ -73,7 +73,7 @@ def test_short_fabric_collect_update_checkpoint_and_reload(
 
     output_directory = tmp_path / "directive-ppo-v4-smoke"
     manifest = train_directive_ppo(config, catalog, registry, output_directory)
-    checkpoint = output_directory / "directive-ppo-v4.pt"
+    checkpoint = output_directory / "ppo-policy.pt"
     assert manifest.schema_version == 4
     assert manifest.behavior_engine_version == registry.engine_version
     assert manifest.hyperparameters["hidden_sizes"] == [64]
