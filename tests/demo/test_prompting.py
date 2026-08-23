@@ -48,13 +48,19 @@ def prompt_spec() -> LlmPromptSpec:
     )
 
 
-def _request(wrapper: TarwareEnvWrapper, catalog: DirectiveCatalog) -> ActionerRequest:
+def _request(
+    wrapper: TarwareEnvWrapper,
+    catalog: DirectiveCatalog,
+    directive_id: int = 1,
+) -> ActionerRequest:
     context = WarehouseContext.capture(wrapper)
     prediction = PpoPolicyOutput(
         state_id=context.state_id,
         episode_step=context.observation.step,
-        directive=catalog.by_id(1),
-        probabilities=(0.0, 1.0, 0.0, 0.0),
+        directive=catalog.by_id(directive_id),
+        probabilities=tuple(
+            1.0 if index == directive_id else 0.0 for index in range(catalog.size)
+        ),
         value_estimate=0.0,
         policy_latency_ms=0.0,
         checkpoint_sha256="0" * 64,
@@ -143,15 +149,16 @@ def test_few_shot_prompt_is_deterministic_and_excludes_catalog_description(
     assert "probabilities" not in all_text
     assert "value_estimate" not in all_text
     assert "9100" not in all_text
-    assert live_text.count("## WAIT EXAMPLE") == 3
     assert live_text.count("## SERVICE REQUESTED SHELF EXAMPLE") == 3
-    assert live_text.count("## DELIVER CARRIED SHELF EXAMPLE") == 3
-    assert live_text.count("## REPOSITION IDLE AGENT EXAMPLE") == 3
-    assert live_text.count("EXAMPLE ") == prompt_spec.example_count
+    assert "## WAIT EXAMPLE" not in live_text
+    assert "## DELIVER CARRIED SHELF EXAMPLE" not in live_text
+    assert "## REPOSITION IDLE AGENT EXAMPLE" not in live_text
+    assert live_text.count("EXAMPLE ") == prompt_spec.examples_per_directive
+    assert prompt_spec.example_count == 9
     assert "{{SELECTED_DIRECTIVE" not in live_text
     assert "{{LIVE_STATE_JSON}}" not in live_text
     assert builder.contract_digest == (
-        "b7c1ad9a7ca22a8e658dfdeeaa1be41eec21236444d76d428881b89be16295b8"
+        "52126c0cf1681428f962272566cae6ecf8bba1b61083d673827ed55166dc3bd8"
     )
     messages_json = json.dumps(
         [message.model_dump(mode="json") for message in first.messages],
@@ -160,11 +167,60 @@ def test_few_shot_prompt_is_deterministic_and_excludes_catalog_description(
         sort_keys=True,
     )
     assert hashlib.sha256(messages_json.encode()).hexdigest() == (
-        "c5400b4ee2946df3f0175434092a9da6e934bf4b541ab430f294cf0252f1cc37"
+        "d88a45291ad2e974d06a4d86c3e8384aeb7a3ac36be5ca14a4a68fa84bf21cc8"
     )
     assert builder.template_digest == (
-        "9d7301b3652de4d8456234c925149cdcc1d6d69c6c96cd28b17cb2e73f0c1d38"
+        "03ce2b4e72d07f77e4d1a7967859c7d3201fcbd39133b49b1d5746dbb58135ec"
     )
+    assert builder.template_digests == {
+        "service_requested_shelf": (
+            "8ff7003d3c2b43f9a0da0d80167aed3c0967db84305c47b47dc53686d8aad706"
+        ),
+        "deliver_carried_shelf": (
+            "cfdb60eb534a327f7ea87a38aa307830534e38f0815d05605c684d87eb1af40e"
+        ),
+        "reposition_idle_agent": (
+            "cb0544e1b9a9fb9455cd81f35c3d07400f94b58387f7b40b6467928f8a603f7f"
+        ),
+    }
+
+
+@pytest.mark.parametrize(
+    ("directive_id", "expected_heading"),
+    (
+        (1, "## SERVICE REQUESTED SHELF EXAMPLE"),
+        (2, "## DELIVER CARRIED SHELF EXAMPLE"),
+        (3, "## REPOSITION IDLE AGENT EXAMPLE"),
+    ),
+)
+def test_each_llm_directive_loads_only_its_own_examples(
+    catalog: DirectiveCatalog,
+    wrapped_env: TarwareEnvWrapper,
+    directive_id: int,
+    expected_heading: str,
+) -> None:
+    request = _request(wrapped_env, catalog, directive_id)
+    builder = LlmPromptBuilder.load(
+        ROOT / "configs/demo/llm-actioner-few-shot-prompt.yaml", catalog
+    )
+
+    text = builder.build(request).messages[1].content
+
+    assert text.count(expected_heading) == 3
+    assert text.count("EXAMPLE ") == 3
+
+
+def test_wait_bypasses_the_llm_prompt(
+    catalog: DirectiveCatalog,
+    wrapped_env: TarwareEnvWrapper,
+) -> None:
+    request = _request(wrapped_env, catalog, 0)
+    builder = LlmPromptBuilder.load(
+        ROOT / "configs/demo/llm-actioner-few-shot-prompt.yaml", catalog
+    )
+
+    with pytest.raises(ValueError, match="bypasses the LLM"):
+        builder.build(request)
 
 
 def test_prompt_spec_rejects_incomplete_or_misaligned_examples(
@@ -179,16 +235,15 @@ def test_prompt_spec_rejects_incomplete_or_misaligned_examples(
         LlmPromptSpec.model_validate(missing_directive)
 
     wrong_count = prompt_spec.model_dump(mode="json")
-    wrong_count["example_count"] = 11
+    wrong_count["example_count"] = 8
     with pytest.raises(ValidationError, match="example_count"):
         LlmPromptSpec.model_validate(wrong_count)
 
     duplicate_key = prompt_spec.model_dump(mode="json")
     duplicate_key["required_behavior_keys"] = [
-        "wait",
-        "wait",
+        "service_requested_shelf",
+        "service_requested_shelf",
         "deliver_carried_shelf",
-        "reposition_idle_agent",
     ]
     with pytest.raises(ValidationError):
         LlmPromptSpec.model_validate(duplicate_key)
@@ -197,7 +252,7 @@ def test_prompt_spec_rejects_incomplete_or_misaligned_examples(
         update={
             "command_metadata": {
                 **prompt_spec.command_metadata,
-                "wait": "not-wait",
+                "service_requested_shelf": "not-service",
             }
         }
     )
@@ -205,8 +260,8 @@ def test_prompt_spec_rejects_incomplete_or_misaligned_examples(
         misaligned_command.validate_catalog(catalog)
 
     missing_template = prompt_spec.model_dump(mode="json")
-    missing_template["prompt_template_path"] = None
-    with pytest.raises(ValidationError, match="TXT path"):
+    del missing_template["prompt_template_paths"]["service_requested_shelf"]
+    with pytest.raises(ValidationError, match="template paths"):
         LlmPromptSpec.model_validate(missing_template)
 
 

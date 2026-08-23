@@ -49,7 +49,15 @@ def _load_policy(
     return PpoPolicy.load(_resolve(root, config.ppo_checkpoint_path), catalog, manifest)
 
 
-def _measured_request(context, directives, policy, registry, catalog, covered):
+def _measured_request(
+    context,
+    directives,
+    policy,
+    registry,
+    catalog,
+    covered,
+    required_classes,
+):
     request = policy_request(context, policy, registry)
     selected = request.directive.directive_id
     non_wait = tuple(
@@ -59,7 +67,7 @@ def _measured_request(context, directives, policy, registry, catalog, covered):
     )
     if selected == catalog.wait_directive_id and non_wait:
         selected = non_wait[0]
-    elif len(covered) < 4:
+    elif len(covered) < len(required_classes):
         alternate = next(
             (
                 directive_id
@@ -79,7 +87,7 @@ def _measured_request(context, directives, policy, registry, catalog, covered):
 def run_preflight(
     config: DemoConfig, *, repository_root: Path | None = None
 ) -> LlmPreflightReport:
-    """Run health, four-class validity, sensitivity, and latency gates."""
+    """Run health, active-directive validity, sensitivity, and latency gates."""
     root = (repository_root or _repository_root()).resolve()
     catalog = DirectiveCatalog.load(_resolve(root, config.vocabulary_path))
     registry = build_registry(catalog)
@@ -89,6 +97,15 @@ def run_preflight(
         LlmPromptBuilder()
         if config.prompt_spec_path is None
         else LlmPromptBuilder.load(_resolve(root, config.prompt_spec_path), catalog)
+    )
+    required_classes = frozenset(
+        builder.prompt_spec.required_behavior_keys
+        if builder.prompt_spec is not None and builder.prompt_spec.schema_version == 3
+        else (
+            directive.behavior_key
+            for directive in catalog.directives
+            if directive.directive_id != catalog.wait_directive_id
+        )
     )
     actioner = LlmActioner(backend, builder)
     validator = ActionValidator(registry)
@@ -117,13 +134,21 @@ def run_preflight(
             failures.append("no applicable non-wait directive for warm-up")
         else:
             context, directives = warmup
-            request = forced_request(context, policy, catalog, directives[0])
-            _, warmup_completed, error = timed_action(
-                actioner, validator, request, wrapper
+            active_directives = tuple(
+                directive_id
+                for directive_id in directives
+                if catalog.by_id(directive_id).behavior_key in required_classes
             )
-            if error:
-                failures.append(f"warm-up failed: {error}")
-            prompt_digest = prompt_schema_digest(context, request, builder)
+            if not active_directives:
+                failures.append("no LLM-actioned directive for warm-up")
+            else:
+                request = forced_request(context, policy, catalog, active_directives[0])
+                _, warmup_completed, error = timed_action(
+                    actioner, validator, request, wrapper
+                )
+                if error:
+                    failures.append(f"warm-up failed: {error}")
+                prompt_digest = prompt_schema_digest(context, request, builder)
 
         for offset in range(60):
             if len(latencies) == 8:
@@ -140,8 +165,21 @@ def run_preflight(
             if state is None:
                 continue
             context, directives = state
+            directives = tuple(
+                directive_id
+                for directive_id in directives
+                if catalog.by_id(directive_id).behavior_key in required_classes
+            )
+            if not directives:
+                continue
             request, selected = _measured_request(
-                context, directives, policy, registry, catalog, set(classes)
+                context,
+                directives,
+                policy,
+                registry,
+                catalog,
+                set(classes),
+                required_classes,
             )
             classes.append(catalog.by_id(selected).behavior_key)
             elapsed, valid, error = timed_action(actioner, validator, request, wrapper)
@@ -166,9 +204,16 @@ def run_preflight(
             if state is None:
                 continue
             context, directives = state
+            directives = tuple(
+                directive_id
+                for directive_id in directives
+                if catalog.by_id(directive_id).behavior_key in required_classes
+            )
+            if len(directives) < 2:
+                continue
             sensitivity_states += 1
             validities: list[bool] = []
-            selected_directives = directives[:4]
+            selected_directives = directives[: len(required_classes)]
             for directive_id in selected_directives:
                 sensitivity_pairs += 1
                 sensitivity_classes.add(catalog.by_id(directive_id).behavior_key)
@@ -202,22 +247,26 @@ def run_preflight(
         )
         failures.append("health and model identity were not verified")
     validity_passed = (
-        len(latencies) == 8 and valid_responses == 8 and len(set(classes)) == 4
+        len(latencies) == 8
+        and valid_responses == 8
+        and set(classes) == required_classes
     )
     sensitivity_passed = (
         sensitivity_states == 3
         and sensitivity_pairs >= 6
         and sensitivity_valid_pairs == sensitivity_pairs
-        and len(sensitivity_classes) == 4
+        and sensitivity_classes == required_classes
     )
     latency_p95 = percentile(latencies, 0.95)
     latency_passed = (
         bool(latencies) and latency_p95 <= config.preflight_p95_limit_seconds
     )
     if not validity_passed:
-        failures.append("8/8 validity and four-class coverage gate failed")
+        failures.append(
+            f"8/8 validity and {len(required_classes)}-class LLM coverage gate failed"
+        )
     if not sensitivity_passed:
-        failures.append("three-state four-class directive sensitivity gate failed")
+        failures.append("three-state active-directive sensitivity gate failed")
     if not latency_passed:
         failures.append("p95 latency gate failed")
     report = LlmPreflightReport(

@@ -1,0 +1,42 @@
+You are the actioner for a warehouse controller. Apply only the selected deliver-carried-shelf directive to the visible live state. The project validates every destination after generation, so do not guess hidden state and do not add commentary outside the required JSON object.
+
+GLOBAL RULES
+1. Return exactly one JSON object with exactly two keys: destinations and reason.
+2. destinations must contain exactly {{AGENT_COUNT}} non-negative integer destination IDs in the canonical agent order shown in LIVE STATE.
+3. Use only destination IDs in the matching agent's legal_destinations row. Destination 0 means no new assignment and is always safe when legal.
+4. Never give two agents with the same role the same nonzero destination. Different roles may share a destination.
+5. Keep reason concise and no longer than 160 characters. Do not emit Markdown, code fences, extra keys, or alternatives.
+
+DELIVER-CARRIED-SHELF RULES
+- Assign only idle AGVs that are carrying a shelf.
+- Every nonzero choice must be a legal destination listed in goal_destination_ids.
+- Pickers, busy agents, and non-carrying AGVs must receive 0.
+- Use distinct legal goals for multiple carrying AGVs of the same role.
+
+FEW-SHOT EXAMPLES
+
+## DELIVER CARRIED SHELF EXAMPLE 1
+State: five agents (AGV, AGV, picker, picker, AGV); idle=[0,1,4]; carrying=[1,4]; requested=[12]; goals=[51,52]; legal=[[0,12],[0,51],[0,12],[0,22],[0,52]].
+Directive: deliver-carried-shelf
+Output: {"destinations":[0,51,0,0,52],"reason":"Carrying idle AGVs 1 and 4 use distinct legal goals 51 and 52."}
+
+## DELIVER CARRIED SHELF EXAMPLE 2
+State: five agents (picker, AGV, AGV, picker, AGV); idle=[1,2,3]; carrying=[2]; requested=[16]; goals=[43]; legal=[[0,16],[0,16],[0,43],[0,24],[0,24]].
+Directive: deliver-carried-shelf
+Output: {"destinations":[0,0,43,0,0],"reason":"Idle carrying AGV 2 can legally deliver to goal 43."}
+
+## DELIVER CARRIED SHELF EXAMPLE 3
+State: five agents (AGV, picker, AGV, AGV, picker); idle=[0,2,3,4]; carrying=[0,3]; requested=[19,20]; goals=[70,71]; legal=[[0,70],[0,19],[0,20],[0,71],[0,20]].
+Directive: deliver-carried-shelf
+Output: {"destinations":[70,0,0,71,0],"reason":"Carrying idle AGVs 0 and 3 choose separate legal goal destinations."}
+
+SELECTED DIRECTIVE
+behavior_key: {{SELECTED_DIRECTIVE_BEHAVIOR_KEY}}
+command: {{SELECTED_DIRECTIVE_COMMAND}}
+instruction: {{SELECTED_DIRECTIVE_INSTRUCTION}}
+
+LIVE STATE
+{{LIVE_STATE_JSON}}
+
+FINAL CHECK
+Count the destinations, check each row's legal list, enforce same-role uniqueness, and confirm every nonzero choice belongs to an idle carrying AGV and targets a goal. Return the JSON object now.

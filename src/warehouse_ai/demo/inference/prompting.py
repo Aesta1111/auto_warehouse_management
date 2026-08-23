@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +31,7 @@ _SYSTEM_MESSAGE = (
 )
 
 _FEW_SHOT_TEMPLATE_VERSION = "directive-llm-few-shot-chat-v2"
+_PER_DIRECTIVE_TEMPLATE_VERSION = "directive-llm-per-directive-chat-v1"
 _TEMPLATE_MARKERS = frozenset(
     {
         "{{SELECTED_DIRECTIVE_BEHAVIOR_KEY}}",
@@ -68,6 +70,7 @@ class LlmPromptBuilder:
         catalog: DirectiveCatalog | None = None,
         *,
         template_bytes: bytes | None = None,
+        template_bytes_by_behavior: Mapping[str, bytes] | None = None,
     ) -> None:
         if (prompt_spec is None) != (catalog is None):
             raise ValueError("few-shot prompting requires both prompt spec and catalog")
@@ -77,6 +80,10 @@ class LlmPromptBuilder:
             if template_bytes is None:
                 raise ValueError(
                     "schema-v2 prompt specs require external template bytes"
+                )
+            if template_bytes_by_behavior:
+                raise ValueError(
+                    "schema-v2 prompt specs cannot provide per-directive templates"
                 )
             template = template_bytes.decode("utf-8")
             missing = sorted(
@@ -91,16 +98,54 @@ class LlmPromptBuilder:
                         f"prompt template must contain {prompt_spec.examples_per_directive} "
                         f"examples for {behavior_key}"
                     )
-        if prompt_spec is not None and prompt_spec.schema_version == 1:
+        if prompt_spec is not None and prompt_spec.schema_version == 3:
             if template_bytes is not None:
+                raise ValueError(
+                    "schema-v3 prompt specs cannot provide one shared template"
+                )
+            templates = dict(template_bytes_by_behavior or {})
+            if tuple(templates) != prompt_spec.required_behavior_keys:
+                raise ValueError(
+                    "schema-v3 prompt template bytes do not match required behaviors"
+                )
+            for behavior_key, raw_template in templates.items():
+                template = raw_template.decode("utf-8")
+                missing = sorted(
+                    marker for marker in _TEMPLATE_MARKERS if marker not in template
+                )
+                if missing:
+                    raise ValueError(
+                        f"{behavior_key} prompt template is missing markers: {missing}"
+                    )
+                heading = f"## {behavior_key.replace('_', ' ').upper()} EXAMPLE"
+                if template.count(heading) != prompt_spec.examples_per_directive:
+                    raise ValueError(
+                        f"{behavior_key} prompt template must contain "
+                        f"{prompt_spec.examples_per_directive} matching examples"
+                    )
+                for other_key in (
+                    *prompt_spec.required_behavior_keys,
+                    *prompt_spec.deterministic_behavior_keys,
+                ):
+                    if other_key == behavior_key:
+                        continue
+                    other_heading = f"## {other_key.replace('_', ' ').upper()} EXAMPLE"
+                    if other_heading in template:
+                        raise ValueError(
+                            f"{behavior_key} prompt template contains {other_key} examples"
+                        )
+        if prompt_spec is not None and prompt_spec.schema_version == 1:
+            if template_bytes is not None or template_bytes_by_behavior:
                 raise ValueError("schema-v1 prompt specs cannot provide template bytes")
         self.prompt_spec = prompt_spec
         self._template_bytes = template_bytes
+        self._template_bytes_by_behavior = dict(template_bytes_by_behavior or {})
 
     @classmethod
     def load(cls, path: Path, catalog: DirectiveCatalog) -> LlmPromptBuilder:
         spec = load_yaml_config(path, LlmPromptSpec)
         template_bytes = None
+        template_bytes_by_behavior: dict[str, bytes] | None = None
         if spec.schema_version == 2:
             assert spec.prompt_template_path is not None
             template_path = path.parent / spec.prompt_template_path
@@ -110,7 +155,24 @@ class LlmPromptBuilder:
                 raise ValueError(
                     f"could not load prompt template {template_path}"
                 ) from exc
-        return cls(spec, catalog, template_bytes=template_bytes)
+        elif spec.schema_version == 3:
+            template_bytes_by_behavior = {}
+            for behavior_key, relative_path in spec.prompt_template_paths.items():
+                template_path = path.parent / relative_path
+                try:
+                    template_bytes_by_behavior[behavior_key] = (
+                        template_path.read_bytes()
+                    )
+                except OSError as exc:
+                    raise ValueError(
+                        f"could not load prompt template {template_path}"
+                    ) from exc
+        return cls(
+            spec,
+            catalog,
+            template_bytes=template_bytes,
+            template_bytes_by_behavior=template_bytes_by_behavior,
+        )
 
     @property
     def contract_digest(self) -> str | None:
@@ -123,7 +185,11 @@ class LlmPromptBuilder:
                     or (
                         "directive-few-shot-chat-v1"
                         if self.prompt_spec.schema_version == 1
-                        else _FEW_SHOT_TEMPLATE_VERSION
+                        else (
+                            _FEW_SHOT_TEMPLATE_VERSION
+                            if self.prompt_spec.schema_version == 2
+                            else _PER_DIRECTIVE_TEMPLATE_VERSION
+                        )
                     )
                 ),
                 "prompt_spec": self.prompt_spec,
@@ -132,14 +198,39 @@ class LlmPromptBuilder:
         if self.prompt_spec.schema_version == 2:
             assert self._template_bytes is not None
             return sha256_bytes(metadata + b"\n" + self._template_bytes)
+        if self.prompt_spec.schema_version == 3:
+            return sha256_bytes(metadata + b"\n" + self._template_bundle_bytes())
         return sha256_bytes(metadata)
 
     @property
     def template_digest(self) -> str | None:
         """Digest the exact external prompt bytes, preserving line endings."""
         if self._template_bytes is None:
-            return None
+            if not self._template_bytes_by_behavior:
+                return None
+            return sha256_bytes(self._template_bundle_bytes())
         return sha256_bytes(self._template_bytes)
+
+    @property
+    def template_digests(self) -> dict[str, str]:
+        """Digest each directive-specific template independently."""
+        return {
+            behavior_key: sha256_bytes(template_bytes)
+            for behavior_key, template_bytes in self._template_bytes_by_behavior.items()
+        }
+
+    def _template_bundle_bytes(self) -> bytes:
+        chunks: list[bytes] = []
+        for behavior_key, template_bytes in self._template_bytes_by_behavior.items():
+            chunks.extend(
+                (
+                    behavior_key.encode("utf-8"),
+                    b"\x00",
+                    template_bytes,
+                    b"\x00",
+                )
+            )
+        return b"".join(chunks)
 
     def state_payload(
         self, context: WarehouseContext, *, directive: dict[str, Any] | None = None
@@ -180,9 +271,27 @@ class LlmPromptBuilder:
         directive = request.directive
         if self.prompt_spec is None:
             return self._build_legacy(request)
-        if self.prompt_spec.schema_version == 2:
-            assert self._template_bytes is not None
-            template = self._template_bytes.decode("utf-8")
+        if self.prompt_spec.schema_version in (2, 3):
+            if self.prompt_spec.schema_version == 2:
+                assert self._template_bytes is not None
+                raw_template = self._template_bytes
+            else:
+                if (
+                    directive.behavior_key
+                    in self.prompt_spec.deterministic_behavior_keys
+                ):
+                    raise ValueError(
+                        f"{directive.behavior_key} bypasses the LLM deterministically"
+                    )
+                try:
+                    raw_template = self._template_bytes_by_behavior[
+                        directive.behavior_key
+                    ]
+                except KeyError as exc:
+                    raise ValueError(
+                        f"no prompt template for {directive.behavior_key}"
+                    ) from exc
+            template = raw_template.decode("utf-8")
             payload = self.state_payload(
                 request.context,
                 directive={

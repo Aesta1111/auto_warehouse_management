@@ -131,13 +131,17 @@ class DirectivePrompt(DemoModel):
 class LlmPromptSpec(DemoModel):
     """Metadata for either a legacy inline prompt or an external template."""
 
-    schema_version: Literal[1, 2]
+    schema_version: Literal[1, 2, 3]
     prompt_id: NonBlankStr
     system_message: NonBlankStr | None = None
     directives: tuple[DirectivePrompt, ...] = ()
     template_version: NonBlankStr | None = None
     prompt_template_path: RepositoryPath | None = None
+    prompt_template_paths: dict[DirectiveBehaviorKey, RepositoryPath] = Field(
+        default_factory=dict
+    )
     required_behavior_keys: tuple[DirectiveBehaviorKey, ...] = ()
+    deterministic_behavior_keys: tuple[DirectiveBehaviorKey, ...] = ()
     command_metadata: dict[str, NonBlankStr] = Field(default_factory=dict)
     examples_per_directive: PositiveInt = 1
     example_count: PositiveInt = 4
@@ -164,6 +168,7 @@ class LlmPromptSpec(DemoModel):
             if (
                 self.template_version is not None
                 or self.prompt_template_path is not None
+                or self.prompt_template_paths
             ):
                 raise ValueError(
                     "schema-v1 prompt specs cannot select an external template"
@@ -171,20 +176,51 @@ class LlmPromptSpec(DemoModel):
             return self
 
         if self.system_message is not None or self.directives:
+            raise ValueError("external prompt specs must keep prompt text in TXT files")
+        if self.template_version is None:
+            raise ValueError("external prompt specs require a template version")
+
+        if self.schema_version == 2:
+            if self.prompt_template_path is None or self.prompt_template_paths:
+                raise ValueError("schema-v2 prompt specs require one TXT path")
+            if self.deterministic_behavior_keys:
+                raise ValueError(
+                    "schema-v2 prompt specs cannot declare deterministic bypasses"
+                )
+            if self.required_behavior_keys != expected:
+                raise ValueError(
+                    "schema-v2 prompt specs must list all four behavior keys"
+                )
+            if tuple(self.command_metadata) != expected:
+                raise ValueError(
+                    "schema-v2 command metadata must use canonical behavior keys"
+                )
+            if self.example_count != len(expected) * self.examples_per_directive:
+                raise ValueError(
+                    "example_count must match the directive/example metadata"
+                )
+            return self
+
+        llm_expected = expected[1:]
+        if self.prompt_template_path is not None:
+            raise ValueError("schema-v3 prompt specs use prompt_template_paths")
+        if self.required_behavior_keys != llm_expected:
             raise ValueError(
-                "schema-v2 prompt specs must keep prompt text in the TXT file"
+                "schema-v3 prompt specs must list the three LLM-actioned behavior keys"
             )
-        if self.template_version is None or self.prompt_template_path is None:
+        if self.deterministic_behavior_keys != ("wait",):
             raise ValueError(
-                "schema-v2 prompt specs require template metadata and a TXT path"
+                "schema-v3 prompt specs must bypass wait deterministically"
             )
-        if self.required_behavior_keys != expected:
-            raise ValueError("schema-v2 prompt specs must list all four behavior keys")
-        if tuple(self.command_metadata) != expected:
+        if tuple(self.prompt_template_paths) != llm_expected:
             raise ValueError(
-                "schema-v2 command metadata must use canonical behavior keys"
+                "schema-v3 template paths must use canonical LLM behavior keys"
             )
-        if self.example_count != len(expected) * self.examples_per_directive:
+        if tuple(self.command_metadata) != llm_expected:
+            raise ValueError(
+                "schema-v3 command metadata must use canonical LLM behavior keys"
+            )
+        if self.example_count != len(llm_expected) * self.examples_per_directive:
             raise ValueError("example_count must match the directive/example metadata")
         return self
 
@@ -200,18 +236,27 @@ class LlmPromptSpec(DemoModel):
             if actual != expected:
                 raise ValueError("prompt directives do not match the directive catalog")
             return
+        expected_by_key = dict(expected)
         actual = tuple(
             (key, self.command_metadata[key]) for key in self.required_behavior_keys
         )
-        if actual != expected:
+        expected_active = tuple(
+            (key, expected_by_key[key]) for key in self.required_behavior_keys
+        )
+        if actual != expected_active:
             raise ValueError(
                 "prompt command metadata does not match the directive catalog"
             )
+        covered = set(self.required_behavior_keys).union(
+            self.deterministic_behavior_keys
+        )
+        if covered != set(expected_by_key):
+            raise ValueError("prompt behavior coverage does not match the catalog")
 
     def by_behavior_key(self, behavior_key: str) -> DirectivePrompt:
         if self.schema_version != 1:
             raise KeyError(
-                "schema-v2 prompt specs store directive text in the template"
+                "external prompt specs store directive text in TXT templates"
             )
         for directive in self.directives:
             if directive.behavior_key == behavior_key:
