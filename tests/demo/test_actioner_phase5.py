@@ -251,6 +251,7 @@ def test_preflight_fails_closed_on_prompt_contract_mismatch() -> None:
         prompt_schema_sha256="1" * 64,
         prompt_contract_sha256="f" * 64,
         prompt_template_sha256="0" * 64,
+        prompt_template_sha256_by_behavior={"placeholder": "0" * 64},
         health=health,
         warmup_completed=True,
         measured_requests=5,
@@ -276,6 +277,13 @@ def test_preflight_fails_closed_on_prompt_contract_mismatch() -> None:
         update={
             "prompt_contract_sha256": builder.contract_digest,
             "prompt_template_sha256": builder.template_digest,
+            "prompt_template_sha256_by_behavior": builder.template_digests,
         }
     )
     verify_prompt_contract(config, matching, builder)
+
+    wrong_per_behavior = matching.model_copy(
+        update={"prompt_template_sha256_by_behavior": {"placeholder": "0" * 64}}
+    )
+    with pytest.raises(ValueError, match="per-behavior"):
+        verify_prompt_contract(config, wrong_per_behavior, builder)

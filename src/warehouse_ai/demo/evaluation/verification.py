@@ -56,6 +56,12 @@ def verify_prompt_contract(
         preflight.prompt_template_sha256 != prompt_builder.template_digest
     ):
         raise ValueError("Llm preflight TXT prompt digest does not match config")
+    if config.schema_version >= 5 and (
+        preflight.prompt_template_sha256_by_behavior != prompt_builder.template_digests
+    ):
+        raise ValueError(
+            "Llm preflight per-behavior prompt digests do not match config"
+        )
 
 
 def verify_demo_artifacts(

@@ -141,6 +141,9 @@ class LlmPreflightReport(DemoModel):
     prompt_schema_sha256: Sha256
     prompt_contract_sha256: Sha256 | None = None
     prompt_template_sha256: Sha256 | None = None
+    prompt_template_sha256_by_behavior: dict[NonBlankStr, Sha256] = Field(
+        default_factory=dict
+    )
     health: ModelHealth
     warmup_completed: bool
     measured_requests: NonNegativeInt
@@ -180,4 +183,8 @@ class LlmPreflightReport(DemoModel):
             )
         if self.schema_version >= 5 and self.prompt_template_sha256 is None:
             raise ValueError("schema-v5 preflight requires the exact TXT prompt digest")
+        if self.schema_version >= 5 and not self.prompt_template_sha256_by_behavior:
+            raise ValueError(
+                "schema-v5 preflight requires per-behavior TXT prompt digests"
+            )
         return self

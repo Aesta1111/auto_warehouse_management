@@ -96,6 +96,11 @@ def verify_fine_tune_artifacts(
             config.schema_version >= 3
             and preflight.prompt_template_sha256 != prompt_builder.template_digest
         )
+        or (
+            config.schema_version >= 3
+            and preflight.prompt_template_sha256_by_behavior
+            != prompt_builder.template_digests
+        )
     ):
         raise ValueError("fine-tuning requires a passing exact versioned preflight")
     inference = config.inference

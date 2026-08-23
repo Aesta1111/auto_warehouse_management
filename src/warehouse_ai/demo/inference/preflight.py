@@ -281,6 +281,7 @@ def run_preflight(
         prompt_schema_sha256=prompt_digest,
         prompt_contract_sha256=builder.contract_digest,
         prompt_template_sha256=builder.template_digest,
+        prompt_template_sha256_by_behavior=builder.template_digests,
         health=health,
         warmup_completed=warmup_completed,
         measured_requests=len(latencies),
