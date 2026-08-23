@@ -7,8 +7,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from warehouse_ai.demo.contracts.base import load_yaml_config
-from warehouse_ai.demo.contracts.evaluation import DemoConfig
+from warehouse_ai.demo.contracts.configuration import load_ppo_evaluation_run
 from warehouse_ai.demo.inference.preflight import run_preflight
 
 
@@ -19,7 +18,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     root = Path(__file__).resolve().parents[1]
     path = args.config if args.config.is_absolute() else root / args.config
     try:
-        config = load_yaml_config(path, DemoConfig)
+        config = load_ppo_evaluation_run(path, root).demo_runtime()
         report = run_preflight(config, repository_root=root)
     except (OSError, ValueError, RuntimeError) as exc:
         print(f"preflight could not complete: {type(exc).__name__}: {exc}")

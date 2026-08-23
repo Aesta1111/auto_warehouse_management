@@ -7,7 +7,7 @@ from uuid import uuid4
 import pytest
 import torch
 
-from warehouse_ai.demo.contracts.base import load_yaml_config
+from warehouse_ai.demo.contracts.configuration import load_ppo_fine_tuning_run
 from warehouse_ai.demo.contracts.directives import DirectiveCatalog
 from warehouse_ai.demo.contracts.finetuning import GemmaFineTuneConfig
 from warehouse_ai.demo.contracts.inference import (
@@ -21,7 +21,7 @@ from warehouse_ai.demo.inference.actioner import Actioner
 from warehouse_ai.demo.ppo.finetuning import (
     FineTuneArtifactIdentity,
     GemmaFineTuneLoop,
-    checkpoint_name,
+    CHECKPOINT_NAME,
     load_fine_tuned_policy,
     warm_start_model,
 )
@@ -58,10 +58,9 @@ class ValidActioner:
 
 
 def _config() -> GemmaFineTuneConfig:
-    original = load_yaml_config(
-        ROOT / "configs/demo/directive-ppo-gemma-finetune-v2.yaml",
-        GemmaFineTuneConfig,
-    )
+    original = load_ppo_fine_tuning_run(
+        Path("configs/demo/ppo-gemma-fine-tuning-run.yaml"), ROOT
+    ).runtime
     values = original.model_dump()
     values.update(
         {
@@ -140,7 +139,7 @@ def test_two_step_fake_fine_tune_saves_reloadable_child_checkpoint() -> None:
             parent_manifest,
         )
         loaded = load_fine_tuned_policy(
-            output / checkpoint_name(config.schema_version),
+            output / CHECKPOINT_NAME,
             catalog,
             parent_manifest,
             manifest,
@@ -161,7 +160,7 @@ def test_two_step_fake_fine_tune_saves_reloadable_child_checkpoint() -> None:
         )
         with pytest.raises(ValueError, match="architecture digest"):
             load_fine_tuned_policy(
-                output / checkpoint_name(config.schema_version),
+                output / CHECKPOINT_NAME,
                 catalog,
                 parent_manifest,
                 bad_manifest,

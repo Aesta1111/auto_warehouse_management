@@ -18,9 +18,9 @@ from warehouse_ai.demo.inference.actioner import GemmaActioner
 from warehouse_ai.demo.inference.llama_cpp import LlamaCppBackend
 from warehouse_ai.demo.inference.prompting import GemmaPromptBuilder
 from warehouse_ai.demo.ppo.finetuning import (
+    CHECKPOINT_NAME,
     FineTuneArtifactIdentity,
     GemmaFineTuneLoop,
-    checkpoint_name,
     warm_start_model,
 )
 from warehouse_ai.demo.ppo.gemma_environment import GemmaGymEnv
@@ -127,10 +127,9 @@ def run_gemma_fine_tune(
     root = repository_root.resolve()
     verified = verify_fine_tune_artifacts(config, root)
     output = _resolve(root, config.output_directory)
-    version = config.schema_version
-    final_checkpoint = output / checkpoint_name(version)
-    manifest_path = output / f"directive-ppo-gemma-finetune-manifest-v{version}.json"
-    step_log = output / f"fine-tune-steps-v{version}.jsonl"
+    final_checkpoint = output / CHECKPOINT_NAME
+    manifest_path = output / "fine-tuning-manifest.json"
+    step_log = output / "fine-tuning-steps.jsonl"
     if any(path.exists() for path in (final_checkpoint, manifest_path, step_log)):
         raise FileExistsError(
             "fine-tuning output already exists; choose a new directory"

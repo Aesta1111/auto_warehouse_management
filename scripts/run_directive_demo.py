@@ -9,8 +9,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from warehouse_ai.demo.contracts.base import load_yaml_config
-from warehouse_ai.demo.contracts.evaluation import DemoConfig
+from warehouse_ai.demo.contracts.configuration import load_ppo_evaluation_run
 from warehouse_ai.demo.evaluation.runner import run_matched_demo
 
 
@@ -91,8 +90,7 @@ def main() -> int:
     if args.command == "start-gemma":
         return _start_gemma(args, root)
 
-    config_path = args.config if args.config.is_absolute() else root / args.config
-    config = load_yaml_config(config_path, DemoConfig)
+    config = load_ppo_evaluation_run(args.config, root).demo_runtime()
     summary = run_matched_demo(config, repository_root=root)
     print(json.dumps(summary.model_dump(mode="json"), indent=2, sort_keys=True))
     print(f"output_directory: {root / summary.output_directory}")

@@ -12,7 +12,6 @@ from warehouse_ai.demo.artifacts import (
     create_run_directory,
     write_json_atomic,
 )
-from warehouse_ai.demo.contracts.base import load_yaml_config
 from warehouse_ai.demo.contracts.evaluation import EpisodeResult
 from warehouse_ai.demo.contracts.finetuning import (
     FineTuneComparisonSummary,
@@ -214,13 +213,11 @@ def is_better_gemma_candidate(
 def run_fine_tune_comparison(
     evaluation: FineTuneEvaluationConfig,
     *,
+    fine_config: GemmaFineTuneConfig,
     repository_root: Path,
 ) -> FineTuneComparisonSummary:
     """Run one explicitly selected seed partition; never train or select here."""
     root = repository_root.resolve()
-    fine_config = load_yaml_config(
-        _resolve(root, evaluation.fine_tune_config_path), GemmaFineTuneConfig
-    )
     verified = verify_fine_tune_artifacts(fine_config, root)
     child_manifest, child_policy = _verify_child(
         root, evaluation, fine_config, verified
@@ -228,15 +225,16 @@ def run_fine_tune_comparison(
     verify_evaluation_prerequisite(root, evaluation, child_manifest)
     seeds = _partition_seeds(fine_config, evaluation.partition)
     version = evaluation.schema_version
-    gate_path = _resolve(root, fine_config.output_directory) / (
-        f"{evaluation.partition}-gate-v{version}.json"
+    gate_path = (
+        _resolve(root, fine_config.output_directory)
+        / f"{evaluation.partition}-gate.json"
     )
     if gate_path.exists():
         raise FileExistsError("evaluation gate already exists for this child policy")
     git_commit, _ = capture_git_state(root)
     run_directory = create_run_directory(
         _resolve(root, evaluation.output_directory),
-        controller_name=f"gemma-finetune-{evaluation.partition}-v{version}",
+        controller_name=f"gemma-finetune-{evaluation.partition}",
         created_at_utc=datetime.now(timezone.utc),
         git_commit=git_commit,
     )
@@ -280,6 +278,6 @@ def run_fine_tune_comparison(
         candidate_better=is_better_gemma_candidate(parent, child),
         output_directory=run_directory.relative_to(root),
     )
-    write_json_atomic(run_directory / f"fine-tune-comparison-v{version}.json", summary)
+    write_json_atomic(run_directory / "fine-tuning-comparison.json", summary)
     write_json_atomic(gate_path, summary)
     return summary

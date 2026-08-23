@@ -6,8 +6,7 @@ import argparse
 import json
 from pathlib import Path
 
-from warehouse_ai.demo.contracts.base import load_yaml_config
-from warehouse_ai.demo.contracts.finetuning import GemmaFineTuneConfig
+from warehouse_ai.demo.contracts.configuration import load_ppo_fine_tuning_run
 from warehouse_ai.demo.ppo.finetune_service import run_gemma_fine_tune
 
 
@@ -24,9 +23,8 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     root = _repository_root()
-    config_path = args.config if args.config.is_absolute() else root / args.config
-    config = load_yaml_config(config_path, GemmaFineTuneConfig)
-    manifest = run_gemma_fine_tune(config, repository_root=root)
+    loaded = load_ppo_fine_tuning_run(args.config, root)
+    manifest = run_gemma_fine_tune(loaded.runtime, repository_root=root)
     print(json.dumps(manifest.model_dump(mode="json"), indent=2, sort_keys=True))
 
 

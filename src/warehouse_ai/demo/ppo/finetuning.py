@@ -31,16 +31,8 @@ from warehouse_ai.demo.ppo.model import (
 from warehouse_ai.demo.ppo.policy import PpoPolicy, TorchPolicyAdapter
 
 
-def checkpoint_name(schema_version: int) -> str:
-    return f"directive-ppo-gemma-finetuned-v{schema_version}.pt"
-
-
-def progress_name(schema_version: int) -> str:
-    return f"fine-tune-progress-v{schema_version}.pt"
-
-
-CHECKPOINT_NAME = checkpoint_name(1)
-PROGRESS_NAME = progress_name(1)
+CHECKPOINT_NAME = "fine-tuned-ppo-policy.pt"
+PROGRESS_NAME = "fine-tuning-progress.pt"
 
 
 @dataclass(frozen=True)
@@ -200,8 +192,8 @@ class GemmaFineTuneLoop:
         collector = RolloutCollector()
         completed_steps = optimizer_steps = 0
         maximum_reference_kl = 0.0
-        checkpoint = output_directory / checkpoint_name(config.schema_version)
-        progress = output_directory / progress_name(config.schema_version)
+        checkpoint = output_directory / CHECKPOINT_NAME
+        progress = output_directory / PROGRESS_NAME
 
         while completed_steps < config.total_timesteps:
             collector.collect(
