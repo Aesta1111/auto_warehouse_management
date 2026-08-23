@@ -51,7 +51,7 @@ def _load_policy(
 
 def _measured_request(context, directives, policy, registry, catalog, covered):
     request = policy_request(context, policy, registry)
-    selected = request.prediction.directive.directive_id
+    selected = request.directive.directive_id
     non_wait = tuple(
         directive_id
         for directive_id in directives
@@ -71,7 +71,7 @@ def _measured_request(context, directives, policy, registry, catalog, covered):
         )
         if alternate is not None:
             selected = alternate
-    if selected != request.prediction.directive.directive_id:
+    if selected != request.directive.directive_id:
         request = forced_request(context, policy, catalog, selected)
     return request, selected
 

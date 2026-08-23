@@ -22,6 +22,7 @@ from warehouse_ai.demo.controllers import (
     GemmaController,
 )
 from warehouse_ai.demo.directives import Registry, build_registry
+from warehouse_ai.demo.execution import DirectiveExecutionService
 from warehouse_ai.demo.inference.actioner import Actioner, ActionerError
 from warehouse_ai.demo.ppo.policy import PpoPolicy
 from warehouse_ai.env import TarwareEnvWrapper
@@ -84,7 +85,7 @@ class FakeActioner:
         if self.mode in code_by_mode:
             raise ActionerError(code_by_mode[self.mode], f"injected {self.mode}")
         action = self.registry.execute(
-            request.prediction.directive.directive_id,
+            request.directive.directive_id,
             request.context,
             self.wrapper,
         )
@@ -196,6 +197,27 @@ def test_wait_bypasses_model(catalog: DirectiveCatalog, registry: Registry) -> N
         assert decision.source == "directive_executor"
         assert decision.failure_code is None
         assert decision.action == wrapper.no_op()
+    finally:
+        wrapper.close()
+
+
+def test_shared_execution_accepts_directive_without_frozen_policy_output(
+    catalog: DirectiveCatalog,
+    registry: Registry,
+) -> None:
+    wrapper = _wrapper()
+    try:
+        actioner = FakeActioner(wrapper, registry)
+        context = WarehouseContext.capture(wrapper)
+        outcome = DirectiveExecutionService(
+            registry,
+            cast(Actioner, actioner),
+        ).execute(context, catalog.by_id(1), wrapper)
+
+        assert actioner.called
+        assert outcome.source == "gemma"
+        assert outcome.failure_code is None
+        registry.validate_effect(1, context, outcome.action)
     finally:
         wrapper.close()
 
