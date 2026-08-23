@@ -36,6 +36,7 @@ def test_committed_versioned_configs_load() -> None:
     )
     ppo_v3 = load_yaml_config(ROOT / "configs/demo/directive-ppo-v3.yaml", PpoConfig)
     demo_v2 = load_yaml_config(ROOT / "configs/demo/directive-demo-v2.yaml", DemoConfig)
+    demo_v3 = load_yaml_config(ROOT / "configs/demo/directive-demo-v3.yaml", DemoConfig)
 
     assert catalog.size == 4
     assert catalog.by_id(catalog.wait_directive_id).command == "wait"
@@ -72,6 +73,11 @@ def test_committed_versioned_configs_load() -> None:
     assert ppo_v3.schema_version == 3
     assert demo_v2.inference.backend == "llama_cpp"
     assert demo_v2.preflight_p95_limit_seconds == 3.92
+    assert demo_v2.prompt_spec_path is None
+    assert demo_v3.schema_version == 3
+    assert demo_v3.prompt_spec_path == Path(
+        "configs/demo/gemma-prompt-few-shot-v1.yaml"
+    )
 
 
 def test_contract_import_does_not_load_ml_or_transport_frameworks() -> None:

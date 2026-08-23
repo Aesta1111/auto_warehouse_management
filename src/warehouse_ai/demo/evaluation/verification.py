@@ -15,6 +15,7 @@ from warehouse_ai.demo.contracts.evaluation import DemoConfig
 from warehouse_ai.demo.contracts.inference import GemmaPreflightReport
 from warehouse_ai.demo.contracts.ppo import PpoManifest
 from warehouse_ai.demo.directives import build_registry
+from warehouse_ai.demo.inference.prompting import GemmaPromptBuilder
 from warehouse_ai.demo.ppo.policy import PpoPolicy
 
 
@@ -23,6 +24,7 @@ class VerifiedDemoArtifacts:
     catalog: DirectiveCatalog
     manifest: PpoManifest
     policy: PpoPolicy
+    prompt_builder: GemmaPromptBuilder
     probe_digest: str
     preflight_digest: str
 
@@ -40,6 +42,18 @@ def _load_json_model(path: Path, model_type: type[Any]) -> Any:
         ) from exc
 
 
+def verify_prompt_contract(
+    config: DemoConfig,
+    preflight: GemmaPreflightReport,
+    prompt_builder: GemmaPromptBuilder,
+) -> None:
+    """Require preflight evidence for the exact configured prompt contract."""
+    if not preflight.passed or preflight.schema_version != config.schema_version:
+        raise ValueError("Gemma preflight did not pass for this config version")
+    if preflight.prompt_contract_sha256 != prompt_builder.contract_digest:
+        raise ValueError("Gemma preflight prompt contract does not match config")
+
+
 def verify_demo_artifacts(
     config: DemoConfig, repository_root: Path
 ) -> VerifiedDemoArtifacts:
@@ -53,6 +67,13 @@ def verify_demo_artifacts(
     manifest = _load_json_model(manifest_path, PpoManifest)
     probe = _load_json_model(probe_path, ProbeReport)
     preflight = _load_json_model(preflight_path, GemmaPreflightReport)
+    prompt_builder = (
+        GemmaPromptBuilder()
+        if config.prompt_spec_path is None
+        else GemmaPromptBuilder.load(
+            resolve_path(repository_root, config.prompt_spec_path), catalog
+        )
+    )
     if manifest.schema_version != 3 or probe.schema_version != 2:
         raise ValueError("demo v2 requires PPO schema v3 and probe schema v2")
     if manifest.environment_id != config.environment_id:
@@ -73,8 +94,7 @@ def verify_demo_artifacts(
         raise ValueError("directive artifact identities do not match current semantics")
     if not probe.passed or probe.environment_id != config.environment_id:
         raise ValueError("directive probe is failed or from another environment")
-    if not preflight.passed or preflight.schema_version != 2:
-        raise ValueError("Gemma preflight v2 did not pass")
+    verify_prompt_contract(config, preflight, prompt_builder)
     inference = config.inference
     if preflight.selected_model != config.selected_model:
         raise ValueError("preflight model selection does not match demo config")
@@ -109,6 +129,7 @@ def verify_demo_artifacts(
         catalog=catalog,
         manifest=manifest,
         policy=policy,
+        prompt_builder=prompt_builder,
         probe_digest=sha256_file(probe_path),
         preflight_digest=sha256_file(preflight_path),
     )

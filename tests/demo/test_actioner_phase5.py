@@ -9,6 +9,7 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
+from warehouse_ai.demo.contracts.base import load_yaml_config
 from warehouse_ai.demo.contracts.directives import (
     WarehouseContext,
     PpoPolicyOutput,
@@ -23,6 +24,8 @@ from warehouse_ai.demo.contracts.inference import (
     ModelHealth,
     PromptEnvelope,
 )
+from warehouse_ai.demo.contracts.evaluation import DemoConfig
+from warehouse_ai.demo.evaluation.verification import verify_prompt_contract
 from warehouse_ai.demo.inference.actioner import ActionerError, GemmaActioner
 from warehouse_ai.demo.inference.backend import InferenceError, ModelBackend
 from warehouse_ai.demo.inference.llama_cpp import LlamaCppBackend
@@ -222,3 +225,54 @@ def test_preflight_report_records_independent_gates() -> None:
         GemmaPreflightReport.model_validate(
             {**report.model_dump(), "valid_responses": 6}
         )
+
+
+def test_schema_v3_preflight_fails_closed_on_prompt_contract_mismatch() -> None:
+    config = load_yaml_config(ROOT / "configs/demo/directive-demo-v3.yaml", DemoConfig)
+    catalog = DirectiveCatalog.load(ROOT / config.vocabulary_path)
+    assert config.prompt_spec_path is not None
+    builder = GemmaPromptBuilder.load(ROOT / config.prompt_spec_path, catalog)
+    now = datetime.now(timezone.utc)
+    health = ModelHealth(
+        base_url=cast(Any, "http://testserver"),
+        model_id=MODEL_ID,
+        advertised_model_ids=(MODEL_ID,),
+        status="ok",
+        healthy=True,
+        checked_at_utc=now,
+    )
+    report = GemmaPreflightReport(
+        schema_version=3,
+        selected_model="e4b",
+        model_id=MODEL_ID,
+        model_file_sha256="0" * 64,
+        base_url=cast(Any, "http://testserver"),
+        context_size=4096,
+        gpu_layers=24,
+        prompt_schema_sha256="1" * 64,
+        prompt_contract_sha256="f" * 64,
+        health=health,
+        warmup_completed=True,
+        measured_requests=5,
+        valid_responses=5,
+        invalid_responses=0,
+        sensitivity_states=3,
+        sensitivity_pairs=6,
+        sensitivity_valid_pairs=6,
+        latency_seconds=(0.1, 0.2, 0.3, 0.4, 0.5),
+        latency_median_seconds=0.3,
+        latency_p95_seconds=0.49,
+        p95_limit_seconds=3.92,
+        validity_passed=True,
+        sensitivity_passed=True,
+        latency_passed=True,
+        passed=True,
+        checked_at_utc=now,
+    )
+    with pytest.raises(ValueError, match="prompt contract"):
+        verify_prompt_contract(config, report, builder)
+
+    matching = report.model_copy(
+        update={"prompt_contract_sha256": builder.contract_digest}
+    )
+    verify_prompt_contract(config, matching, builder)

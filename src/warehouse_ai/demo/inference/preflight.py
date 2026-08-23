@@ -85,7 +85,12 @@ def run_preflight(
     registry = build_registry(catalog)
     policy = _load_policy(root, config, catalog)
     backend = LlamaCppBackend(config.inference)
-    actioner = GemmaActioner(backend, GemmaPromptBuilder())
+    builder = (
+        GemmaPromptBuilder()
+        if config.prompt_spec_path is None
+        else GemmaPromptBuilder.load(_resolve(root, config.prompt_spec_path), catalog)
+    )
+    actioner = GemmaActioner(backend, builder)
     validator = ActionValidator(registry)
     wrapper = TarwareEnvWrapper(config.environment_id)
     latencies: list[float] = []
@@ -117,7 +122,7 @@ def run_preflight(
             )
             if error:
                 failures.append(f"warm-up failed: {error}")
-            prompt_digest = prompt_schema_digest(context, request)
+            prompt_digest = prompt_schema_digest(context, request, builder)
 
         for offset in range(20):
             if len(latencies) == 5:
@@ -212,7 +217,7 @@ def run_preflight(
     if not latency_passed:
         failures.append("p95 latency gate failed")
     report = GemmaPreflightReport(
-        schema_version=2,
+        schema_version=config.schema_version,
         selected_model=config.selected_model,
         backend=config.inference.backend,
         model_id=config.inference.model_id,
@@ -221,6 +226,7 @@ def run_preflight(
         context_size=config.inference.context_size,
         gpu_layers=config.inference.gpu_layers,
         prompt_schema_sha256=prompt_digest,
+        prompt_contract_sha256=builder.contract_digest,
         health=health,
         warmup_completed=warmup_completed,
         measured_requests=len(latencies),

@@ -3,13 +3,21 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from pathlib import Path
 from typing import Any
 
-from warehouse_ai.demo.artifacts import canonical_json_text
-from warehouse_ai.demo.contracts.directives import WarehouseContext
+from warehouse_ai.demo.artifacts import (
+    canonical_json_bytes,
+    canonical_json_text,
+    sha256_bytes,
+)
+from warehouse_ai.demo.contracts.directives import WarehouseContext, DirectiveCatalog
+from warehouse_ai.demo.contracts.base import load_yaml_config
 from warehouse_ai.demo.contracts.inference import (
     ActionerRequest,
     ChatMessage,
+    DirectivePrompt,
+    GemmaPromptSpec,
     PromptEnvelope,
 )
 
@@ -20,6 +28,8 @@ _SYSTEM_MESSAGE = (
     "Return one complete joint destination action. Every choice is validated "
     "before it reaches the simulator."
 )
+
+_FEW_SHOT_TEMPLATE_VERSION = "directive-few-shot-chat-v1"
 
 
 def _position(value: Any) -> list[int]:
@@ -42,6 +52,34 @@ def _agent(agent: Any) -> dict[str, Any]:
 
 class GemmaPromptBuilder:
     """Render proven wording from a compact canonical state representation."""
+
+    def __init__(
+        self,
+        prompt_spec: GemmaPromptSpec | None = None,
+        catalog: DirectiveCatalog | None = None,
+    ) -> None:
+        if (prompt_spec is None) != (catalog is None):
+            raise ValueError("few-shot prompting requires both prompt spec and catalog")
+        if prompt_spec is not None and catalog is not None:
+            prompt_spec.validate_catalog(catalog)
+        self.prompt_spec = prompt_spec
+
+    @classmethod
+    def load(cls, path: Path, catalog: DirectiveCatalog) -> GemmaPromptBuilder:
+        return cls(load_yaml_config(path, GemmaPromptSpec), catalog)
+
+    @property
+    def contract_digest(self) -> str | None:
+        if self.prompt_spec is None:
+            return None
+        return sha256_bytes(
+            canonical_json_bytes(
+                {
+                    "template_version": _FEW_SHOT_TEMPLATE_VERSION,
+                    "prompt_spec": self.prompt_spec,
+                }
+            )
+        )
 
     def state_payload(
         self, context: WarehouseContext, *, directive: dict[str, Any] | None = None
@@ -80,11 +118,111 @@ class GemmaPromptBuilder:
 
     def build(self, request: ActionerRequest) -> PromptEnvelope:
         directive = request.prediction.directive
+        if self.prompt_spec is None:
+            return self._build_legacy(request)
+        prompt_directive = self.prompt_spec.by_behavior_key(directive.behavior_key)
+        messages: list[ChatMessage] = [
+            ChatMessage(role="system", content=self.prompt_spec.system_message)
+        ]
+        for example_directive in self.prompt_spec.directives:
+            messages.extend(
+                (
+                    ChatMessage(
+                        role="user",
+                        content=self._render_example_user(example_directive),
+                    ),
+                    ChatMessage(
+                        role="assistant",
+                        content=canonical_json_text(example_directive.example.response),
+                    ),
+                )
+            )
+        messages.append(
+            ChatMessage(
+                role="user",
+                content=self._render_live_user(
+                    request,
+                    directive_label="instruction",
+                    directive_text=prompt_directive.instruction,
+                ),
+            )
+        )
+        return PromptEnvelope(
+            messages=tuple(messages),
+            response_schema=self.response_schema(request.context),
+        )
+
+    def _build_legacy(self, request: ActionerRequest) -> PromptEnvelope:
+        directive = request.prediction.directive
+        return PromptEnvelope(
+            messages=(
+                ChatMessage(role="system", content=_SYSTEM_MESSAGE),
+                ChatMessage(
+                    role="user",
+                    content=self._render_live_user(
+                        request,
+                        directive_label="description",
+                        directive_text=directive.description,
+                    ),
+                ),
+            ),
+            response_schema=self.response_schema(request.context),
+        )
+
+    @staticmethod
+    def _render_example_user(directive: DirectivePrompt) -> str:
+        example = directive.example
+        sections = [
+            "SYNTHETIC FEW-SHOT EXAMPLE",
+            "This is a teaching example, not the live warehouse state.",
+            "DIRECTIVE",
+            f"command: {directive.command}",
+            f"instruction: {directive.instruction}",
+            "COMPACT STATE",
+            f"agent roles by position: {canonical_json_text(example.agent_roles)}",
+            (
+                "idle agent positions: "
+                f"{canonical_json_text(example.idle_agent_positions)}"
+            ),
+            (
+                "carrying-shelf positions: "
+                f"{canonical_json_text(example.carrying_shelf_positions)}"
+            ),
+            (
+                "requested destination IDs: "
+                f"{canonical_json_text(example.requested_destination_ids)}"
+            ),
+            (
+                "goal destination IDs: "
+                f"{canonical_json_text(example.goal_destination_ids)}"
+            ),
+            "LEGAL DESTINATIONS",
+        ]
+        sections.extend(
+            f"position {row}: {canonical_json_text(destinations)}"
+            for row, destinations in enumerate(example.legal_destinations)
+        )
+        sections.extend(
+            (
+                "EXPECTED OUTPUT",
+                "Return only the demonstrated JSON shape for this synthetic state.",
+            )
+        )
+        return "\n".join(sections)
+
+    def _render_live_user(
+        self,
+        request: ActionerRequest,
+        *,
+        directive_label: str,
+        directive_text: str,
+    ) -> str:
+        directive = request.prediction.directive
         payload = self.state_payload(
             request.context,
             directive={
                 "command": directive.command,
-                "description": directive.description,
+                directive_label: directive_text,
             },
         )
         sections = [
@@ -96,7 +234,7 @@ class GemmaPromptBuilder:
             ),
             "DIRECTIVE",
             f"command: {directive.command}",
-            f"description: {directive.description}",
+            f"{directive_label}: {directive_text}",
             "AGENTS",
         ]
         for index, agent in enumerate(payload["agents"]):
@@ -145,13 +283,7 @@ class GemmaPromptBuilder:
                 ),
             )
         )
-        return PromptEnvelope(
-            messages=(
-                ChatMessage(role="system", content=_SYSTEM_MESSAGE),
-                ChatMessage(role="user", content="\n".join(sections)),
-            ),
-            response_schema=self.response_schema(request.context),
-        )
+        return "\n".join(sections)
 
     def serialize_state(self, context: WarehouseContext) -> str:
         return canonical_json_text(self.state_payload(context))

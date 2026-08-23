@@ -101,7 +101,11 @@ def timed_action(
     return time.perf_counter() - started, True, None
 
 
-def prompt_schema_digest(context: WarehouseContext, request: ActionerRequest) -> str:
+def prompt_schema_digest(
+    context: WarehouseContext,
+    request: ActionerRequest,
+    builder: GemmaPromptBuilder,
+) -> str:
     del context
-    schema = GemmaPromptBuilder().build(request).response_schema
+    schema = builder.build(request).response_schema
     return sha256_bytes(canonical_json_bytes(schema))
