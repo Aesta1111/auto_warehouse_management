@@ -47,6 +47,12 @@ frozen, while a separate prompt spec supplies digest-verified instructions and
 four synthetic user/assistant examples. It has no validity, latency, or episode
 evidence yet.
 
+A separately versioned Gemma-in-the-loop PPO adaptation path now exists as
+offline infrastructure. It never updates Gemma weights: it warm-starts a child
+PPO from the immutable schema-v3 checkpoint, executes sampled non-wait
+directives through frozen few-shot Gemma, and updates only the child PPO. No
+live adaptation or evaluation has run.
+
 This branch remains isolated from the authoritative projector-and-LoRA
 experiment:
 
@@ -133,6 +139,48 @@ frozen. This creates an intentional executor-transfer gap: PPO is optimized for
 the deterministic executor, so the demo must measure whether Gemma preserves
 each directive's action effect. Results cannot attribute differences solely to
 PPO policy quality.
+
+### 2.3 Optional frozen-Gemma PPO adaptation
+
+The original 25,088-step deterministic PPO training remains the pretraining
+control and must not be repeated or overwritten for this extension. After a
+schema-v3 all-directive preflight and matched baseline pass their declared
+gates, a separate configuration may warm-start a copy for 1,024 environment
+steps. Here, "Gemma fine-tuning" means PPO fine-tuning with frozen Gemma in the
+environment; Gemma parameters, prompt, quantization, and decoding stay frozen.
+
+```text
+observation -> sampled masked PPO directive -> frozen Gemma actioner
+            -> strict shared validation -> deterministic fallback if needed
+            -> TA-RWARE transition -> PPO update
+```
+
+The shared `DirectiveExecutionService` owns validation and fallback for both
+training and evaluation. Wait bypasses Gemma. Each step records the unmodified
+simulator reward and a separate learning reward. The learning reward subtracts
+the predeclared `0.001` penalty for any structured Gemma failure because the
+deterministic fallback would otherwise hide that failure from PPO. Evaluation
+always reports raw simulator reward.
+
+The v1 adaptation uses four 256-step rollouts, learning rate `3e-5`, four PPO
+epochs, within-update target KL `0.01`, and maximum divergence `0.05` from the
+parent over collected states. It uses a fresh optimizer. The child checkpoint
+and manifest record parent, prompt, preflight, model, catalog, behavior, seed,
+reward, call, failure, latency, and Git identities. Parent artifacts remain
+immutable.
+
+Seed use is fixed before live work:
+
+- adaptation: parent training seeds `8100`-`8115`;
+- selection: `8200`-`8201`;
+- confirmation: `8202`-`8203`;
+- final descriptive comparison: `9100`.
+
+Parent and child use identical frozen Gemma contracts in paired evaluation.
+Selection ranks completed tasks first, then raw return, then lower fallback
+rate, and rejects collapse to fewer than two non-wait directives. Deterministic
+executor episodes remain a cheap catastrophic-forgetting diagnostic. A negative
+result keeps the parent and is reported without retuning on later partitions.
 
 ## 3. Demo architecture
 

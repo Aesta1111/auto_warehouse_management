@@ -59,8 +59,15 @@ complete, and its seeds remain excluded from later scientific evaluation.
   gate; this remains prototype evidence and does not score the main project.
 - [x] Add a schema-v3 prompt-only contract with four validated synthetic
   user/assistant examples while preserving the v1 catalog and schema-v2 prompt.
+- [x] Add offline infrastructure for a separately versioned, warm-started PPO
+  adaptation using frozen Gemma, shared execution, provenance, KL/fallback
+  gates, and paired partitioned evaluation.
 - [ ] Run and record the schema-v3 all-directive preflight and a separately
   versioned matched episode before interpreting the few-shot prompt.
+- [ ] Only if that baseline retains a material executor-transfer gap, run the
+  1,024-step Gemma-in-the-loop PPO adaptation on training seeds.
+- [ ] Compare parent/adapted checkpoints on selection and confirmation seeds;
+  expose seed 9100 only after the confirmation gate passes.
 
 Phase 2 of the prototype passed on 2026-08-13: 2,500 states checked across
 seeds 8000-8004 with zero uncovered states, executor failures, or effect
@@ -103,6 +110,13 @@ calling Gemma. Its prompt spec is digest-verified and separate from the frozen
 directive catalog, and its four compact examples use no experiment seed state.
 The existing schema-v2 preflight and matched-run artifacts remain authoritative
 until a later live schema-v3 investigation receives its own research-log entry.
+
+Gemma-in-the-loop PPO adaptation infrastructure was added on 2026-08-23 without
+starting llama.cpp. It warm-starts a separate child policy, uses the production
+validation/fallback service, records simulator and learning rewards separately,
+guards divergence from the parent, and provides paired selection, confirmation,
+and final evaluation configs. Gemma remains frozen. These implementation gates
+do not establish that adaptation is useful.
 
 ## Phase 2: runnable project foundation
 

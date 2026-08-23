@@ -526,6 +526,19 @@ use four user/assistant example pairs before the full live-state request and do
 not expose the catalog description. This is infrastructure only: no schema-v3
 Gemma preflight or matched episode has run, so the 2026-08-22 negative result
 remains the latest prototype evidence and no improvement is claimed.
+An additional prototype-only extension may warm-start a copy of the frozen
+schema-v3 directive PPO and perform 1,024 on-policy steps with the frozen Gemma
+actioner in the environment. This is PPO adaptation, not Gemma weight
+fine-tuning: the model file, prompt contract, decoding settings, catalog, and
+parent PPO checkpoint remain immutable. Its versioned configuration uses only
+parent training seeds, splits parent validation seeds into selection and
+confirmation partitions, and reserves seed 9100 for a final descriptive
+comparison. Gemma failures use the same strict validator and deterministic
+fallback as evaluation. PPO receives simulator reward minus a predeclared
+0.001 fallback penalty, while reported episode returns remain unmodified. The
+parent and adapted policies stay separate. The code and offline fake-actioner
+tests exist, but no live schema-v3 preflight, adaptation, selection,
+confirmation, or final run has occurred, so this adds no experimental evidence.
 Both checkpoints and manifests are prototype-only artifacts and cannot become
 the PPO checkpoint for the main scientific experiment. Future action sequences
 remain an unresolved main-project extension.

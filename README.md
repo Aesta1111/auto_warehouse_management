@@ -18,10 +18,10 @@ directive-sensitivity responses were valid, and p95 latency was 3.56 seconds
 against the 10-second limit. The remaining Phase 1 gate is the prepared
 Linux/A40 cloud run for pathfinder equivalence, real 4-bit weights, memory,
 latency, and cost. The main training pipeline has not been implemented.
-The directive-demo Phase 6 matched runner is implemented and verifies all
-frozen artifacts before creating either TA-RWARE episode; its live 500-step
-executor/Gemma gate remains a separate demonstration run, not a main-project
-evaluation.
+The directive-demo Phase 6 matched runner and its live 500-step gate completed;
+the negative 3/2-task executor/Gemma result remains a separate prototype, not a
+main-project evaluation. Schema-v3 few-shot prompting and frozen-Gemma PPO
+adaptation infrastructure are implemented offline, but neither has a live run.
 
 The hybrid improving on PPO is a hypothesis, not a required result. Negative and
 inconclusive findings must be reported without changing the primary metric after
@@ -141,6 +141,28 @@ headless deterministic executor and the rendered Gemma actioner. It writes
 flushed decision JSONL plus small atomic summaries under a unique
 `results/demo/<run-id>/` directory and never computes a statistical or
 improvement claim.
+
+After producing a passing schema-v3 preflight, the optional PPO adaptation can
+be started explicitly while the same pinned server remains running:
+
+```powershell
+uv run python scripts/finetune_directive_ppo_with_gemma.py --config configs/demo/directive-ppo-gemma-finetune-v1.yaml
+```
+
+This is an estimated one-hour live run and is never part of tests or ordinary
+quality checks. It updates a child PPO only; Gemma and the parent checkpoint
+remain frozen. It fails closed when the parent, prompt, preflight, model, or
+seed partitions do not match.
+
+Run paired selection evaluation only after the child manifest exists:
+
+```powershell
+uv run python scripts/evaluate_gemma_finetuned_ppo.py --config configs/demo/directive-ppo-gemma-eval-selection-v1.yaml
+```
+
+Use the separate confirmation config only if selection passes. Do not use the
+final seed-9100 config until confirmation passes. Each paired evaluation is a
+live Gemma job and is intentionally excluded from automated tests.
 
 The deferred RunPod command is `bash scripts/run_phase1_cloud.sh` from an exact
 checked-out project commit.
