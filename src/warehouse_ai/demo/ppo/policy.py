@@ -20,9 +20,11 @@ from warehouse_ai.demo.contracts.directives import (
 from warehouse_ai.demo.contracts.ppo import PpoManifest
 from warehouse_ai.demo.directives import build_registry
 from warehouse_ai.demo.ppo.model import (
+    MODEL_IMPLEMENTATION_VERSION,
     PpoModel,
     architecture_digest,
     implementation_digest,
+    legacy_architecture_digest,
 )
 
 
@@ -38,6 +40,42 @@ def _boolean(values: dict[str, Any], name: str) -> bool:
     if not isinstance(value, bool):
         raise ValueError(f"manifest hyperparameter {name!r} must be boolean")
     return value
+
+
+def _positive_ints(values: dict[str, Any], name: str) -> tuple[int, ...]:
+    value = values.get(name)
+    if not isinstance(value, (list, tuple)) or not value:
+        raise ValueError(f"manifest hyperparameter {name!r} must be non-empty")
+    result: list[int] = []
+    for item in value:
+        if isinstance(item, bool) or not isinstance(item, int) or item <= 0:
+            raise ValueError(
+                f"manifest hyperparameter {name!r} must contain positive integers"
+            )
+        result.append(item)
+    return tuple(result)
+
+
+def _migrate_legacy_state_dict(state_dict: dict[str, Any]) -> dict[str, Any]:
+    """Translate the frozen one-hidden-layer key layout to Mlp keys."""
+    mapping = {
+        "policy_path.0.weight": "policy_network.layers.0.weight",
+        "policy_path.0.bias": "policy_network.layers.0.bias",
+        "policy_head.weight": "policy_network.layers.1.weight",
+        "policy_head.bias": "policy_network.layers.1.bias",
+        "value_path.0.weight": "value_network.layers.0.weight",
+        "value_path.0.bias": "value_network.layers.0.bias",
+        "value_head.weight": "value_network.layers.1.weight",
+        "value_head.bias": "value_network.layers.1.bias",
+    }
+    present = set(mapping).intersection(state_dict)
+    if not present:
+        return state_dict
+    if present != set(mapping):
+        raise ValueError("legacy PPO checkpoint has an incomplete state dictionary")
+    if set(mapping.values()).intersection(state_dict):
+        raise ValueError("PPO checkpoint mixes legacy and MLP state keys")
+    return {mapping.get(name, name): value for name, value in state_dict.items()}
 
 
 def _validate_mask(
@@ -165,22 +203,41 @@ class PpoPolicy:
 
         if manifest.backend != "lightning-fabric":
             raise ValueError("repository-owned checkpoint has the wrong backend")
-        if manifest.implementation_sha256 != implementation_digest():
+        assert manifest.model_implementation_version is not None
+        assert manifest.gae_version is not None
+        assert manifest.loss_version is not None
+        expected_implementation = implementation_digest(
+            manifest.model_implementation_version,
+            manifest.gae_version,
+            manifest.loss_version,
+        )
+        if manifest.implementation_sha256 != expected_implementation:
             raise ValueError("PPO implementation digest does not match manifest")
         values = manifest.hyperparameters
-        dimensions = (
-            int(_number(values, "observation_size")),
-            int(_number(values, "directive_count")),
-            int(_number(values, "hidden_size")),
-        )
-        if manifest.architecture_sha256 != architecture_digest(
-            dimensions[0], dimensions[1], (dimensions[2],)
-        ):
+        observation_size = int(_number(values, "observation_size"))
+        directive_count = int(_number(values, "directive_count"))
+        if manifest.schema_version == 4:
+            if manifest.model_implementation_version != MODEL_IMPLEMENTATION_VERSION:
+                raise ValueError("schema-v4 PPO model implementation is unsupported")
+            hidden_sizes = _positive_ints(values, "hidden_sizes")
+            expected_architecture = architecture_digest(
+                observation_size, directive_count, hidden_sizes
+            )
+        else:
+            hidden_size = int(_number(values, "hidden_size"))
+            hidden_sizes = (hidden_size,)
+            expected_architecture = legacy_architecture_digest(
+                observation_size,
+                directive_count,
+                hidden_size,
+                manifest.model_implementation_version,
+            )
+        if manifest.architecture_sha256 != expected_architecture:
             raise ValueError("PPO architecture digest does not match manifest")
         module = PpoModel(
-            observation_size=dimensions[0],
-            directive_count=dimensions[1],
-            hidden_sizes=(dimensions[2],),
+            observation_size=observation_size,
+            directive_count=directive_count,
+            hidden_sizes=hidden_sizes,
             learning_rate=_number(values, "learning_rate"),
             clip_range=_number(values, "clip_range"),
             entropy_coefficient=_number(values, "entropy_coefficient"),
@@ -191,7 +248,7 @@ class PpoPolicy:
         state_dict = payload.get("model") if isinstance(payload, dict) else None
         if not isinstance(state_dict, dict):
             raise ValueError("PPO checkpoint has no model state dictionary")
-        module.load_state_dict(state_dict, strict=True)
+        module.load_state_dict(_migrate_legacy_state_dict(state_dict), strict=True)
         module.eval()
         return cls.from_module(module, catalog, actual_digest)
 

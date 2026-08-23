@@ -36,14 +36,17 @@ def architecture_digest(
 
 
 def legacy_architecture_digest(
-    observation_size: int, directive_count: int, hidden_size: int
+    observation_size: int,
+    directive_count: int,
+    hidden_size: int,
+    model_implementation_version: str = LEGACY_MODEL_IMPLEMENTATION_VERSION,
 ) -> str:
     """Reproduce the frozen schema-v3 architecture identity."""
     payload = {
         "directive_count": directive_count,
         "hidden_activation": "tanh",
         "hidden_size": hidden_size,
-        "model_implementation_version": LEGACY_MODEL_IMPLEMENTATION_VERSION,
+        "model_implementation_version": model_implementation_version,
         "observation_size": observation_size,
         "separate_policy_and_value_paths": True,
     }
@@ -127,9 +130,7 @@ class PpoModel(nn.Module):
         self.policy_network = Mlp(
             self.observation_size, self.directive_count, self.hidden_sizes
         )
-        self.value_network = Mlp(
-            self.observation_size, 1, self.hidden_sizes
-        )
+        self.value_network = Mlp(self.observation_size, 1, self.hidden_sizes)
 
     def _validate_inputs(self, observations: Tensor, action_masks: Tensor) -> None:
         if observations.ndim != 2 or observations.shape[1] != self.observation_size:

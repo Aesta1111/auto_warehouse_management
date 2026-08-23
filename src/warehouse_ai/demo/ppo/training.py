@@ -24,6 +24,7 @@ from warehouse_ai.demo.ppo.model import (
     PpoModel,
     architecture_digest,
     implementation_digest,
+    legacy_architecture_digest,
 )
 from warehouse_ai.demo.ppo.policy import PpoPolicy
 from warehouse_ai.demo.ppo.validation import (
@@ -69,8 +70,8 @@ class PpoTrainingLoop:
         validation_environment: GymEnv,
         output_directory: Path,
     ) -> PpoManifest:
-        if config.schema_version not in (2, 3):
-            raise ValueError("repository-owned training requires schema v2 or v3")
+        if config.schema_version not in (2, 3, 4):
+            raise ValueError("repository-owned training requires schema v2, v3, or v4")
         if training_environment.catalog.digest() != (
             validation_environment.catalog.digest()
         ):
@@ -193,6 +194,9 @@ class PpoTrainingLoop:
         validation: PpoValidationSummary,
     ) -> PpoManifest:
         git_commit, dirty = capture_git_state(_repository_root())
+        hidden_sizes = tuple(
+            model_size for model_size in environment_hidden_sizes(config)
+        )
         hyperparameters: dict[str, Any] = {
             "learning_rate": config.learning_rate,
             "n_steps": config.n_steps,
@@ -214,8 +218,11 @@ class PpoTrainingLoop:
             "selected_checkpoint_optimizer_steps": selected_updates,
             "observation_size": observation_size,
             "directive_count": environment.catalog.size,
-            "hidden_size": HIDDEN_SIZE,
         }
+        if config.schema_version == 4:
+            hyperparameters["hidden_sizes"] = list(hidden_sizes)
+        else:
+            hyperparameters["hidden_size"] = HIDDEN_SIZE
         return PpoManifest(
             schema_version=config.schema_version,
             environment_id=config.environment_id,
@@ -223,7 +230,7 @@ class PpoTrainingLoop:
             behavior_sha256=environment.registry.behavior_digest(),
             behavior_engine_version=(
                 environment.registry.engine_version
-                if config.schema_version == 3
+                if config.schema_version >= 3
                 else None
             ),
             checkpoint_sha256=sha256_file(checkpoint),
@@ -238,11 +245,32 @@ class PpoTrainingLoop:
             buffer_schema_version=config.buffer_schema_version,
             gae_version=config.gae_version,
             loss_version=config.loss_version,
-            architecture_sha256=architecture_digest(
-                observation_size, environment.catalog.size, (HIDDEN_SIZE,)
+            architecture_sha256=(
+                architecture_digest(
+                    observation_size, environment.catalog.size, hidden_sizes
+                )
+                if config.schema_version == 4
+                else legacy_architecture_digest(
+                    observation_size,
+                    environment.catalog.size,
+                    HIDDEN_SIZE,
+                    config.model_implementation_version or "",
+                )
             ),
-            implementation_sha256=implementation_digest(),
+            implementation_sha256=implementation_digest(
+                config.model_implementation_version or "",
+                config.gae_version or "",
+                config.loss_version or "",
+            ),
             git_commit=git_commit,
             dirty_worktree=dirty,
             created_at_utc=datetime.now(timezone.utc),
         )
+
+
+def environment_hidden_sizes(config: PpoConfig) -> tuple[int, ...]:
+    """Resolve the architecture without changing legacy schema semantics."""
+    if config.schema_version == 4:
+        assert config.hidden_sizes is not None
+        return tuple(config.hidden_sizes)
+    return (HIDDEN_SIZE,)

@@ -43,7 +43,7 @@ class PpoValidationSummary(DemoModel):
 
 
 class PpoManifest(DemoModel):
-    schema_version: Literal[1, 2, 3]
+    schema_version: Literal[1, 2, 3, 4]
     environment_id: NonBlankStr
     vocabulary_sha256: Sha256
     behavior_sha256: Sha256
@@ -90,13 +90,13 @@ class PpoManifest(DemoModel):
             raise ValueError("schema-v2+ manifests require implementation provenance")
         if self.schema_version >= 2 and self.backend != "lightning-fabric":
             raise ValueError("schema-v2+ manifests require lightning-fabric")
-        if self.schema_version == 3 and self.behavior_engine_version is None:
-            raise ValueError("schema-v3 manifests require behavior_engine_version")
+        if self.schema_version >= 3 and self.behavior_engine_version is None:
+            raise ValueError("schema-v3+ manifests require behavior_engine_version")
         return self
 
 
 class PpoConfig(DemoModel):
-    schema_version: Literal[1, 2, 3]
+    schema_version: Literal[1, 2, 3, 4]
     environment_id: NonBlankStr
     vocabulary_path: RepositoryPath
     train_seeds: tuple[int, ...]
@@ -116,6 +116,7 @@ class PpoConfig(DemoModel):
     max_grad_norm: PositiveFloat | None = None
     normalize_advantage: bool | None = None
     target_kl: PositiveFloat | None = None
+    hidden_sizes: tuple[PositiveInt, ...] | None = None
     backend: Literal["sb3-maskable-ppo", "lightning-fabric"] | None = None
     model_implementation_version: NonBlankStr | None = None
     buffer_schema_version: NonBlankStr | None = None
@@ -148,4 +149,8 @@ class PpoConfig(DemoModel):
             )
         if self.schema_version >= 2 and self.backend != "lightning-fabric":
             raise ValueError("schema-v2+ configs require lightning-fabric")
+        if self.schema_version == 4 and not self.hidden_sizes:
+            raise ValueError("schema-v4 configs require non-empty hidden_sizes")
+        if self.schema_version < 4 and self.hidden_sizes is not None:
+            raise ValueError("legacy PPO configs cannot declare hidden_sizes")
         return self

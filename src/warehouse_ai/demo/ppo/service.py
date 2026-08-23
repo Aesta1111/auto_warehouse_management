@@ -10,7 +10,7 @@ from warehouse_ai.demo.contracts.directives import DirectiveCatalog
 from warehouse_ai.demo.contracts.ppo import PpoConfig, PpoManifest
 from warehouse_ai.demo.directives import Registry
 from warehouse_ai.demo.ppo.environment import GymEnv
-from warehouse_ai.demo.ppo.model import PpoModel
+from warehouse_ai.demo.ppo.model import MODEL_IMPLEMENTATION_VERSION, PpoModel
 from warehouse_ai.demo.ppo.training import PpoTrainingLoop, HIDDEN_SIZE
 
 
@@ -26,6 +26,11 @@ def train_directive_ppo(
         return train_directive_ppo_v1(config, catalog, registry, output_directory)
     if registry.catalog.digest() != catalog.digest():
         raise ValueError("registry catalog does not match training catalog")
+    if (
+        config.schema_version == 4
+        and config.model_implementation_version != MODEL_IMPLEMENTATION_VERSION
+    ):
+        raise ValueError("schema-v4 config has the wrong PPO model implementation")
     assert config.value_coefficient is not None
     assert config.normalize_advantage is not None
     torch.manual_seed(config.algorithm_seed)
@@ -46,10 +51,12 @@ def train_directive_ppo(
     observation_shape = training.observation_space.shape
     if observation_shape is None:
         raise RuntimeError("training environment has no fixed observation shape")
+    hidden_sizes = config.hidden_sizes if config.schema_version == 4 else (HIDDEN_SIZE,)
+    assert hidden_sizes is not None
     model = PpoModel(
         observation_size=int(observation_shape[0]),
         directive_count=catalog.size,
-        hidden_sizes=(HIDDEN_SIZE,),
+        hidden_sizes=hidden_sizes,
         learning_rate=config.learning_rate,
         clip_range=config.clip_range,
         entropy_coefficient=config.entropy_coefficient,

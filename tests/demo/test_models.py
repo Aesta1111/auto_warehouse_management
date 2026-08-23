@@ -39,6 +39,7 @@ def test_committed_versioned_configs_load() -> None:
         ROOT / "configs/demo/directive-probe-v2.yaml", ProbeConfig
     )
     ppo_v3 = load_yaml_config(ROOT / "configs/demo/directive-ppo-v3.yaml", PpoConfig)
+    ppo_v4 = load_yaml_config(ROOT / "configs/demo/directive-ppo-v4.yaml", PpoConfig)
     demo_v2 = load_yaml_config(ROOT / "configs/demo/directive-demo-v2.yaml", DemoConfig)
     demo_v3 = load_yaml_config(ROOT / "configs/demo/directive-demo-v3.yaml", DemoConfig)
     fine_tune = load_yaml_config(
@@ -86,6 +87,8 @@ def test_committed_versioned_configs_load() -> None:
     assert ppo_v2.value_coefficient == 0.5
     assert probe_v2.schema_version == 2
     assert ppo_v3.schema_version == 3
+    assert ppo_v4.schema_version == 4
+    assert ppo_v4.hidden_sizes == (64,)
     assert demo_v2.inference.backend == "llama_cpp"
     assert demo_v2.preflight_p95_limit_seconds == 3.92
     assert demo_v2.prompt_spec_path is None
@@ -267,6 +270,29 @@ def test_configs_reject_absolute_paths_overlapping_seeds_and_bad_urls() -> None:
             context_size=1,
             gpu_layers=0,
         )
+
+
+def test_ppo_hidden_sizes_are_required_only_for_schema_v4() -> None:
+    common = {
+        "environment_id": "tiny",
+        "vocabulary_path": Path("configs/demo/directives-v1.yaml"),
+        "train_seeds": (1,),
+        "validation_seeds": (2,),
+        "value_coefficient": 0.5,
+        "max_grad_norm": 0.5,
+        "normalize_advantage": True,
+        "backend": "lightning-fabric",
+        "model_implementation_version": "directive-ppo-mlp-v1",
+        "buffer_schema_version": "buffer-v1",
+        "gae_version": "gae-v1",
+        "loss_version": "loss-v1",
+    }
+    with pytest.raises(ValidationError, match="require non-empty hidden_sizes"):
+        PpoConfig(schema_version=4, **common)
+    with pytest.raises(ValidationError, match="legacy PPO configs"):
+        PpoConfig(schema_version=3, hidden_sizes=(64,), **common)
+    with pytest.raises(ValidationError, match="greater than 0"):
+        PpoConfig(schema_version=4, hidden_sizes=(64, 0), **common)
 
 
 def _observation() -> WarehouseObservation:
