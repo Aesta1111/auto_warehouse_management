@@ -1,4 +1,4 @@
-"""Run the local randomly initialized Llm 4 gradient-flow probe."""
+"""Run the local randomly initialized frozen-language-model boundary probe."""
 
 from __future__ import annotations
 

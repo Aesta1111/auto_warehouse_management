@@ -216,9 +216,9 @@ class PpoPolicy:
         values = manifest.hyperparameters
         observation_size = int(_number(values, "observation_size"))
         directive_count = int(_number(values, "directive_count"))
-        if manifest.schema_version == 4:
+        if manifest.schema_version >= 4:
             if manifest.model_implementation_version != MODEL_IMPLEMENTATION_VERSION:
-                raise ValueError("schema-v4 PPO model implementation is unsupported")
+                raise ValueError("schema-v4+ PPO model implementation is unsupported")
             hidden_sizes = _positive_ints(values, "hidden_sizes")
             expected_architecture = architecture_digest(
                 observation_size, directive_count, hidden_sizes

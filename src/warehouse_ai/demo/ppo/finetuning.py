@@ -1,4 +1,4 @@
-"""Warm-started PPO updates against the frozen Gemma execution path."""
+"""Warm-started PPO updates against the frozen Llm execution path."""
 
 from __future__ import annotations
 
@@ -15,13 +15,13 @@ import torch
 from warehouse_ai.demo.artifacts import capture_git_state, sha256_file
 from warehouse_ai.demo.contracts.directives import DirectiveCatalog
 from warehouse_ai.demo.contracts.finetuning import (
-    GemmaFineTuneConfig,
-    GemmaFineTuneManifest,
+    LlmFineTuneConfig,
+    LlmFineTuneManifest,
 )
 from warehouse_ai.demo.contracts.ppo import PpoManifest
 from warehouse_ai.demo.ppo.buffer import RolloutBuffer
 from warehouse_ai.demo.ppo.collector import RolloutCollector
-from warehouse_ai.demo.ppo.gemma_environment import GemmaGymEnv
+from warehouse_ai.demo.ppo.llm_environment import LlmGymEnv
 from warehouse_ai.demo.ppo.model import (
     MODEL_IMPLEMENTATION_VERSION,
     PpoModel,
@@ -29,6 +29,7 @@ from warehouse_ai.demo.ppo.model import (
     implementation_digest,
 )
 from warehouse_ai.demo.ppo.policy import PpoPolicy, TorchPolicyAdapter
+from warehouse_ai.demo.inference.provenance import hardware_provenance
 
 
 CHECKPOINT_NAME = "fine-tuned-ppo-policy.pt"
@@ -65,14 +66,14 @@ def _package_versions() -> dict[str, str]:
 
 
 def warm_start_model(
-    config: GemmaFineTuneConfig,
+    config: LlmFineTuneConfig,
     catalog: DirectiveCatalog,
     parent_policy: PpoPolicy,
 ) -> PpoModel:
     """Copy verified parent weights into a model with fine-tuning settings."""
     adapter = parent_policy.adapter
     if not isinstance(adapter, TorchPolicyAdapter):
-        raise ValueError("Gemma fine-tuning requires a repository-owned PPO parent")
+        raise ValueError("Llm fine-tuning requires a repository-owned PPO parent")
     parent = adapter.model
     if parent.directive_count != catalog.size:
         raise ValueError("parent PPO directive count does not match catalog")
@@ -94,7 +95,7 @@ def load_fine_tuned_policy(
     checkpoint: Path,
     catalog: DirectiveCatalog,
     parent_manifest: PpoManifest,
-    manifest: GemmaFineTuneManifest,
+    manifest: LlmFineTuneManifest,
 ) -> PpoPolicy:
     """Load a fine-tuned policy while verifying its parent and architecture."""
     if manifest.parent_checkpoint_sha256 != parent_manifest.checkpoint_sha256:
@@ -106,7 +107,7 @@ def load_fine_tuned_policy(
     values = manifest.hyperparameters
     observation_size = int(values["observation_size"])
     directive_count = int(values["directive_count"])
-    if manifest.schema_version == 2:
+    if manifest.schema_version >= 2:
         declared = values.get("hidden_sizes")
         if not isinstance(declared, (list, tuple)) or not declared:
             raise ValueError("fine-tuned PPO manifest requires hidden_sizes")
@@ -159,26 +160,38 @@ def _reference_kl(module: Any, reference: PpoModel, buffer: RolloutBuffer) -> fl
     return float(torch.max(kl).item())
 
 
-class GemmaFineTuneLoop:
-    """Collect expensive Gemma rollouts and update a warm-started PPO."""
+class LlmFineTuneLoop:
+    """Collect expensive Llm rollouts and update a warm-started PPO."""
 
     def fit(
         self,
         model: PpoModel,
         reference_model: PpoModel,
-        config: GemmaFineTuneConfig,
-        environment: GemmaGymEnv,
+        config: LlmFineTuneConfig,
+        environment: LlmGymEnv,
         output_directory: Path,
         identity: FineTuneArtifactIdentity,
         parent_manifest: PpoManifest,
-    ) -> GemmaFineTuneManifest:
+    ) -> LlmFineTuneManifest:
         from lightning.fabric import Fabric
 
         output_directory.mkdir(parents=True, exist_ok=True)
         random.seed(config.algorithm_seed)
         np.random.seed(config.algorithm_seed)
         torch.manual_seed(config.algorithm_seed)
-        fabric = Fabric(accelerator="auto", devices=1, precision="32-true")
+        if config.accelerator == "cuda" and not torch.cuda.is_available():
+            raise RuntimeError(
+                "LLM adaptation config requires CUDA, but torch.cuda is unavailable"
+            )
+        fabric = Fabric(
+            accelerator=config.accelerator,
+            devices=1,
+            precision="32-true",
+        )
+        if config.accelerator == "cuda" and fabric.device.type != "cuda":
+            raise RuntimeError(
+                f"LLM adaptation config requires CUDA, but Fabric selected {fabric.device}"
+            )
         optimizer = model.make_optimizer()
         module, optimizer = fabric.setup(model, optimizer)
         rollout_generator = torch.Generator(device=fabric.device.type)
@@ -251,12 +264,14 @@ class GemmaFineTuneLoop:
             maximum_reference_kl,
             int(shape[0]),
             model.hidden_sizes,
+            str(fabric.device),
+            fabric.device.type,
         )
 
     @staticmethod
     def _manifest(
-        config: GemmaFineTuneConfig,
-        environment: GemmaGymEnv,
+        config: LlmFineTuneConfig,
+        environment: LlmGymEnv,
         checkpoint: Path,
         identity: FineTuneArtifactIdentity,
         parent_manifest: PpoManifest,
@@ -265,7 +280,9 @@ class GemmaFineTuneLoop:
         reference_kl_max: float,
         observation_size: int,
         hidden_sizes: tuple[int, ...],
-    ) -> GemmaFineTuneManifest:
+        selected_device: str,
+        selected_accelerator: str,
+    ) -> LlmFineTuneManifest:
         git_commit, dirty = capture_git_state(_repository_root())
         hyperparameters = {
             "observation_size": observation_size,
@@ -285,13 +302,16 @@ class GemmaFineTuneLoop:
             "max_reference_kl": config.max_reference_kl,
             "declared_total_timesteps": config.total_timesteps,
         }
-        if config.schema_version == 2:
+        if config.schema_version >= 2:
             hyperparameters["hidden_sizes"] = list(hidden_sizes)
         else:
             if len(hidden_sizes) != 1:
                 raise ValueError("schema-v1 fine-tuning requires one hidden layer")
             hyperparameters["hidden_size"] = hidden_sizes[0]
-        return GemmaFineTuneManifest(
+        hardware = hardware_provenance()
+        hardware["selected_device"] = selected_device
+        hardware["selected_accelerator"] = selected_accelerator
+        return LlmFineTuneManifest(
             schema_version=config.schema_version,
             environment_id=config.environment_id,
             vocabulary_sha256=environment.catalog.digest(),
@@ -308,6 +328,13 @@ class GemmaFineTuneLoop:
             prompt_contract_sha256=identity.prompt_contract_sha256,
             preflight_report_sha256=identity.preflight_report_sha256,
             model_file_sha256=config.inference.model_file_sha256,
+            accelerator=(
+                selected_accelerator
+                if selected_accelerator in {"cpu", "cuda"}
+                else None
+            ),
+            selected_device=selected_device,
+            hardware=hardware,
             train_seeds=config.train_seeds,
             selection_seeds=config.selection_seeds,
             confirmation_seeds=config.confirmation_seeds,

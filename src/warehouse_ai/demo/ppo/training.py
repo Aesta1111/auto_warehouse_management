@@ -31,6 +31,7 @@ from warehouse_ai.demo.ppo.validation import (
     evaluate_directive_ppo,
     is_better_validation,
 )
+from warehouse_ai.demo.inference.provenance import hardware_provenance
 
 
 VALIDATION_INTERVAL = 5_000
@@ -71,8 +72,8 @@ class PpoTrainingLoop:
         validation_environment: GymEnv,
         output_directory: Path,
     ) -> PpoManifest:
-        if config.schema_version not in (2, 3, 4):
-            raise ValueError("repository-owned training requires schema v2, v3, or v4")
+        if config.schema_version not in (2, 3, 4, 5):
+            raise ValueError("repository-owned training requires schema v2 through v5")
         if training_environment.catalog.digest() != (
             validation_environment.catalog.digest()
         ):
@@ -85,7 +86,17 @@ class PpoTrainingLoop:
         random.seed(config.algorithm_seed)
         np.random.seed(config.algorithm_seed)
         torch.manual_seed(config.algorithm_seed)
-        fabric = Fabric(accelerator="auto", devices=1, precision="32-true")
+        if config.accelerator == "cuda" and not torch.cuda.is_available():
+            raise RuntimeError("PPO config requires CUDA, but torch.cuda is unavailable")
+        fabric = Fabric(
+            accelerator=config.accelerator,
+            devices=1,
+            precision="32-true",
+        )
+        if config.accelerator == "cuda" and fabric.device.type != "cuda":
+            raise RuntimeError(
+                f"PPO config requires CUDA, but Fabric selected {fabric.device}"
+            )
         optimizer = model.make_optimizer()
         module, optimizer = fabric.setup(model, optimizer)
         rollout_generator = torch.Generator(device=fabric.device.type)
@@ -179,6 +190,8 @@ class PpoTrainingLoop:
             selected_steps=selected_steps,
             selected_updates=selected_updates,
             validation=best,
+            selected_device=str(fabric.device),
+            selected_accelerator=fabric.device.type,
         )
 
     @staticmethod
@@ -193,6 +206,8 @@ class PpoTrainingLoop:
         selected_steps: int,
         selected_updates: int,
         validation: PpoValidationSummary,
+        selected_device: str,
+        selected_accelerator: str,
     ) -> PpoManifest:
         git_commit, dirty = capture_git_state(_repository_root())
         hidden_sizes = tuple(
@@ -220,10 +235,13 @@ class PpoTrainingLoop:
             "observation_size": observation_size,
             "directive_count": environment.catalog.size,
         }
-        if config.schema_version == 4:
+        if config.schema_version >= 4:
             hyperparameters["hidden_sizes"] = list(hidden_sizes)
         else:
             hyperparameters["hidden_size"] = HIDDEN_SIZE
+        hardware = hardware_provenance()
+        hardware["selected_device"] = selected_device
+        hardware["selected_accelerator"] = selected_accelerator
         return PpoManifest(
             schema_version=config.schema_version,
             environment_id=config.environment_id,
@@ -250,7 +268,7 @@ class PpoTrainingLoop:
                 architecture_digest(
                     observation_size, environment.catalog.size, hidden_sizes
                 )
-                if config.schema_version == 4
+                if config.schema_version >= 4
                 else legacy_architecture_digest(
                     observation_size,
                     environment.catalog.size,
@@ -263,6 +281,13 @@ class PpoTrainingLoop:
                 config.gae_version or "",
                 config.loss_version or "",
             ),
+            accelerator=(
+                selected_accelerator
+                if selected_accelerator in {"cpu", "cuda"}
+                else None
+            ),
+            selected_device=selected_device,
+            hardware=hardware,
             git_commit=git_commit,
             dirty_worktree=dirty,
             created_at_utc=datetime.now(timezone.utc),
@@ -271,7 +296,7 @@ class PpoTrainingLoop:
 
 def environment_hidden_sizes(config: PpoConfig) -> tuple[int, ...]:
     """Resolve the architecture without changing legacy schema semantics."""
-    if config.schema_version == 4:
+    if config.schema_version >= 4:
         assert config.hidden_sizes is not None
         return tuple(config.hidden_sizes)
     return (HIDDEN_SIZE,)

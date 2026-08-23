@@ -44,6 +44,14 @@ packages = ["src/warehouse_ai"]
 # PyPI wheel provides the astar_path API TA-RWARE calls and supports Windows.
 override-dependencies = ["pyastar2d==1.1.4"]
 
+[tool.uv.sources]
+torch = [{ index = "pytorch-cu128" }]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 

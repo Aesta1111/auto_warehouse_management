@@ -27,7 +27,7 @@ def train_directive_ppo(
     if registry.catalog.digest() != catalog.digest():
         raise ValueError("registry catalog does not match training catalog")
     if (
-        config.schema_version == 4
+        config.schema_version >= 4
         and config.model_implementation_version != MODEL_IMPLEMENTATION_VERSION
     ):
         raise ValueError("schema-v4 config has the wrong PPO model implementation")
@@ -51,7 +51,7 @@ def train_directive_ppo(
     observation_shape = training.observation_space.shape
     if observation_shape is None:
         raise RuntimeError("training environment has no fixed observation shape")
-    hidden_sizes = config.hidden_sizes if config.schema_version == 4 else (HIDDEN_SIZE,)
+    hidden_sizes = config.hidden_sizes if config.schema_version >= 4 else (HIDDEN_SIZE,)
     assert hidden_sizes is not None
     model = PpoModel(
         observation_size=int(observation_shape[0]),

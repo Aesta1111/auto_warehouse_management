@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from typing import Any, Literal, Self
 
 from pydantic import (
+    Field,
     JsonValue,
     NonNegativeFloat,
     NonNegativeInt,
@@ -43,7 +44,7 @@ class PpoValidationSummary(DemoModel):
 
 
 class PpoManifest(DemoModel):
-    schema_version: Literal[1, 2, 3, 4]
+    schema_version: Literal[1, 2, 3, 4, 5]
     environment_id: NonBlankStr
     vocabulary_sha256: Sha256
     behavior_sha256: Sha256
@@ -62,6 +63,9 @@ class PpoManifest(DemoModel):
     loss_version: NonBlankStr | None = None
     architecture_sha256: Sha256 | None = None
     implementation_sha256: Sha256 | None = None
+    accelerator: Literal["cpu", "cuda"] | None = None
+    selected_device: NonBlankStr | None = None
+    hardware: dict[str, JsonValue] = Field(default_factory=dict)
     git_commit: NonBlankStr
     dirty_worktree: bool
     created_at_utc: UtcDateTime
@@ -92,11 +96,17 @@ class PpoManifest(DemoModel):
             raise ValueError("schema-v2+ manifests require lightning-fabric")
         if self.schema_version >= 3 and self.behavior_engine_version is None:
             raise ValueError("schema-v3+ manifests require behavior_engine_version")
+        if self.schema_version >= 5 and (
+            self.accelerator != "cuda"
+            or self.selected_device is None
+            or not self.hardware
+        ):
+            raise ValueError("schema-v5 manifests require CUDA device provenance")
         return self
 
 
 class PpoConfig(DemoModel):
-    schema_version: Literal[1, 2, 3, 4]
+    schema_version: Literal[1, 2, 3, 4, 5]
     environment_id: NonBlankStr
     vocabulary_path: RepositoryPath
     train_seeds: tuple[int, ...]
@@ -104,6 +114,7 @@ class PpoConfig(DemoModel):
     algorithm_seed: int = 8100
     episode_steps: PositiveInt = 500
     total_timesteps: PositiveInt = 25_000
+    accelerator: Literal["auto", "cpu", "cuda"] = "auto"
     learning_rate: PositiveFloat = 3e-4
     n_steps: PositiveInt = 256
     batch_size: PositiveInt = 64
@@ -149,8 +160,10 @@ class PpoConfig(DemoModel):
             )
         if self.schema_version >= 2 and self.backend != "lightning-fabric":
             raise ValueError("schema-v2+ configs require lightning-fabric")
-        if self.schema_version == 4 and not self.hidden_sizes:
-            raise ValueError("schema-v4 configs require non-empty hidden_sizes")
+        if self.schema_version >= 4 and not self.hidden_sizes:
+            raise ValueError("schema-v4+ configs require non-empty hidden_sizes")
         if self.schema_version < 4 and self.hidden_sizes is not None:
             raise ValueError("legacy PPO configs cannot declare hidden_sizes")
+        if self.schema_version >= 5 and self.accelerator != "cuda":
+            raise ValueError("schema-v5 PPO configs require accelerator: cuda")
         return self

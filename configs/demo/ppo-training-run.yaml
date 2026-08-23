@@ -1,14 +1,15 @@
-schema_version: 1
-run_id: directive-ppo-training
+schema_version: 2
+run_id: directive-ppo-training-100k-4x256-cuda
 model_config_path: configs/demo/ppo-model.yaml
 environment_id: tarware-tiny-3agvs-2pickers-partialobs-v1
 vocabulary_path: configs/demo/directive-catalog.yaml
-output_directory: results/demo/ppo-training
+output_directory: results/demo/ppo-training-100k-4x256-cuda
 train_seeds: [8100, 8101, 8102, 8103, 8104, 8105, 8106, 8107, 8108, 8109, 8110, 8111, 8112, 8113, 8114, 8115]
 validation_seeds: [8200, 8201, 8202, 8203]
 algorithm_seed: 8100
 episode_steps: 500
-total_timesteps: 25000
+total_timesteps: 100000
+accelerator: cuda
 learning_rate: 0.0003
 n_steps: 256
 batch_size: 64
