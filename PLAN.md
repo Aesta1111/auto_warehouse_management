@@ -1094,7 +1094,7 @@ preserve optimizer state, masking, GAE semantics, and reproducible checkpoint
 reload without private Lightning APIs, record the failed investigation and
 stop before Phase 4 rather than hiding the problem behind the old SB3 model.
 
-### 7.8 Prompt construction (`prompting.py`)
+### 7.8 Prompt contracts and construction (`contracts/prompting.py`, `inference/prompting.py`)
 
 ```python
 class ChatMessage(DemoModel):

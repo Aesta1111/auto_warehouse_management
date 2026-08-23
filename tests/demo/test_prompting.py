@@ -14,9 +14,9 @@ from warehouse_ai.demo.contracts.directives import (
 )
 from warehouse_ai.demo.contracts.inference import (
     ActionerRequest,
-    GemmaPromptSpec,
     GemmaActionResponse,
 )
+from warehouse_ai.demo.contracts.prompting import GemmaPromptSpec
 from warehouse_ai.demo.contracts.base import load_yaml_config
 from warehouse_ai.demo.inference.prompting import GemmaPromptBuilder
 from warehouse_ai.env import TarwareEnvWrapper

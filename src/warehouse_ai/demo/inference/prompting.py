@@ -16,10 +16,10 @@ from warehouse_ai.demo.contracts.base import load_yaml_config
 from warehouse_ai.demo.contracts.inference import (
     ActionerRequest,
     ChatMessage,
-    DirectivePrompt,
-    GemmaPromptSpec,
     PromptEnvelope,
 )
+from warehouse_ai.demo.contracts.prompting import GemmaPromptSpec
+from warehouse_ai.demo.inference.prompt_examples import render_example_user
 
 
 _SYSTEM_MESSAGE = (
@@ -129,7 +129,7 @@ class GemmaPromptBuilder:
                 (
                     ChatMessage(
                         role="user",
-                        content=self._render_example_user(example_directive),
+                        content=render_example_user(example_directive),
                     ),
                     ChatMessage(
                         role="assistant",
@@ -168,47 +168,6 @@ class GemmaPromptBuilder:
             ),
             response_schema=self.response_schema(request.context),
         )
-
-    @staticmethod
-    def _render_example_user(directive: DirectivePrompt) -> str:
-        example = directive.example
-        sections = [
-            "SYNTHETIC FEW-SHOT EXAMPLE",
-            "This is a teaching example, not the live warehouse state.",
-            "DIRECTIVE",
-            f"command: {directive.command}",
-            f"instruction: {directive.instruction}",
-            "COMPACT STATE",
-            f"agent roles by position: {canonical_json_text(example.agent_roles)}",
-            (
-                "idle agent positions: "
-                f"{canonical_json_text(example.idle_agent_positions)}"
-            ),
-            (
-                "carrying-shelf positions: "
-                f"{canonical_json_text(example.carrying_shelf_positions)}"
-            ),
-            (
-                "requested destination IDs: "
-                f"{canonical_json_text(example.requested_destination_ids)}"
-            ),
-            (
-                "goal destination IDs: "
-                f"{canonical_json_text(example.goal_destination_ids)}"
-            ),
-            "LEGAL DESTINATIONS",
-        ]
-        sections.extend(
-            f"position {row}: {canonical_json_text(destinations)}"
-            for row, destinations in enumerate(example.legal_destinations)
-        )
-        sections.extend(
-            (
-                "EXPECTED OUTPUT",
-                "Return only the demonstrated JSON shape for this synthetic state.",
-            )
-        )
-        return "\n".join(sections)
 
     def _render_live_user(
         self,
