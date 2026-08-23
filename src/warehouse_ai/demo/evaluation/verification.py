@@ -12,10 +12,10 @@ from warehouse_ai.demo.contracts.directives import (
     DirectiveCatalog,
 )
 from warehouse_ai.demo.contracts.evaluation import DemoConfig
-from warehouse_ai.demo.contracts.inference import GemmaPreflightReport
+from warehouse_ai.demo.contracts.inference import LlmPreflightReport
 from warehouse_ai.demo.contracts.ppo import PpoManifest
 from warehouse_ai.demo.directives import build_registry
-from warehouse_ai.demo.inference.prompting import GemmaPromptBuilder
+from warehouse_ai.demo.inference.prompting import LlmPromptBuilder
 from warehouse_ai.demo.ppo.policy import PpoPolicy
 
 
@@ -24,7 +24,7 @@ class VerifiedDemoArtifacts:
     catalog: DirectiveCatalog
     manifest: PpoManifest
     policy: PpoPolicy
-    prompt_builder: GemmaPromptBuilder
+    prompt_builder: LlmPromptBuilder
     probe_digest: str
     preflight_digest: str
 
@@ -44,14 +44,18 @@ def _load_json_model(path: Path, model_type: type[Any]) -> Any:
 
 def verify_prompt_contract(
     config: DemoConfig,
-    preflight: GemmaPreflightReport,
-    prompt_builder: GemmaPromptBuilder,
+    preflight: LlmPreflightReport,
+    prompt_builder: LlmPromptBuilder,
 ) -> None:
     """Require preflight evidence for the exact configured prompt contract."""
     if not preflight.passed or preflight.schema_version != config.schema_version:
-        raise ValueError("Gemma preflight did not pass for this config version")
+        raise ValueError("Llm preflight did not pass for this config version")
     if preflight.prompt_contract_sha256 != prompt_builder.contract_digest:
-        raise ValueError("Gemma preflight prompt contract does not match config")
+        raise ValueError("Llm preflight prompt contract does not match config")
+    if config.schema_version >= 5 and (
+        preflight.prompt_template_sha256 != prompt_builder.template_digest
+    ):
+        raise ValueError("Llm preflight TXT prompt digest does not match config")
 
 
 def verify_demo_artifacts(
@@ -66,15 +70,15 @@ def verify_demo_artifacts(
     registry = build_registry(catalog)
     manifest = _load_json_model(manifest_path, PpoManifest)
     probe = _load_json_model(probe_path, ProbeReport)
-    preflight = _load_json_model(preflight_path, GemmaPreflightReport)
+    preflight = _load_json_model(preflight_path, LlmPreflightReport)
     prompt_builder = (
-        GemmaPromptBuilder()
+        LlmPromptBuilder()
         if config.prompt_spec_path is None
-        else GemmaPromptBuilder.load(
+        else LlmPromptBuilder.load(
             resolve_path(repository_root, config.prompt_spec_path), catalog
         )
     )
-    expected_ppo_schema = 4 if config.schema_version == 4 else 3
+    expected_ppo_schema = 5 if config.schema_version >= 5 else (4 if config.schema_version == 4 else 3)
     if manifest.schema_version != expected_ppo_schema or probe.schema_version != 2:
         raise ValueError(
             "demo config requires its versioned PPO schema and probe schema v2"

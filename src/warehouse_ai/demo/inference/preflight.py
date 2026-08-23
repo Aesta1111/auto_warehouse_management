@@ -10,11 +10,11 @@ from typing import Any
 from warehouse_ai.demo.artifacts import write_json_atomic
 from warehouse_ai.demo.contracts.directives import DirectiveCatalog
 from warehouse_ai.demo.contracts.evaluation import DemoConfig
-from warehouse_ai.demo.contracts.inference import GemmaPreflightReport, ModelHealth
+from warehouse_ai.demo.contracts.inference import LlmPreflightReport, ModelHealth
 from warehouse_ai.demo.contracts.ppo import PpoManifest
 from warehouse_ai.demo.controllers import ActionValidator
 from warehouse_ai.demo.directives import build_registry
-from warehouse_ai.demo.inference.actioner import GemmaActioner
+from warehouse_ai.demo.inference.actioner import LlmActioner
 from warehouse_ai.demo.inference.llama_cpp import LlamaCppBackend
 from warehouse_ai.demo.inference.preflight_cases import (
     find_state,
@@ -23,7 +23,7 @@ from warehouse_ai.demo.inference.preflight_cases import (
     prompt_schema_digest,
     timed_action,
 )
-from warehouse_ai.demo.inference.prompting import GemmaPromptBuilder
+from warehouse_ai.demo.inference.prompting import LlmPromptBuilder
 from warehouse_ai.demo.inference.provenance import hardware_provenance, percentile
 from warehouse_ai.demo.ppo.policy import PpoPolicy
 from warehouse_ai.env import TarwareEnvWrapper
@@ -59,7 +59,7 @@ def _measured_request(context, directives, policy, registry, catalog, covered):
     )
     if selected == catalog.wait_directive_id and non_wait:
         selected = non_wait[0]
-    elif len(covered) < 2:
+    elif len(covered) < 4:
         alternate = next(
             (
                 directive_id
@@ -78,24 +78,25 @@ def _measured_request(context, directives, policy, registry, catalog, covered):
 
 def run_preflight(
     config: DemoConfig, *, repository_root: Path | None = None
-) -> GemmaPreflightReport:
-    """Run the configured server gates and write a schema-v2 report."""
+) -> LlmPreflightReport:
+    """Run health, four-class validity, sensitivity, and latency gates."""
     root = (repository_root or _repository_root()).resolve()
     catalog = DirectiveCatalog.load(_resolve(root, config.vocabulary_path))
     registry = build_registry(catalog)
     policy = _load_policy(root, config, catalog)
     backend = LlamaCppBackend(config.inference)
     builder = (
-        GemmaPromptBuilder()
+        LlmPromptBuilder()
         if config.prompt_spec_path is None
-        else GemmaPromptBuilder.load(_resolve(root, config.prompt_spec_path), catalog)
+        else LlmPromptBuilder.load(_resolve(root, config.prompt_spec_path), catalog)
     )
-    actioner = GemmaActioner(backend, builder)
+    actioner = LlmActioner(backend, builder)
     validator = ActionValidator(registry)
     wrapper = TarwareEnvWrapper(config.environment_id)
     latencies: list[float] = []
     classes: list[str] = []
     sensitivity_results: list[dict[str, Any]] = []
+    sensitivity_classes: set[str] = set()
     failures: list[str] = []
     valid_responses = invalid_responses = sensitivity_states = 0
     sensitivity_pairs = sensitivity_valid_pairs = 0
@@ -124,8 +125,8 @@ def run_preflight(
                 failures.append(f"warm-up failed: {error}")
             prompt_digest = prompt_schema_digest(context, request, builder)
 
-        for offset in range(20):
-            if len(latencies) == 5:
+        for offset in range(60):
+            if len(latencies) == 8:
                 break
             state = find_state(
                 wrapper,
@@ -150,8 +151,8 @@ def run_preflight(
             if error:
                 failures.append(f"measured request failed: {error}")
 
-        for offset in range(20, 40):
-            if sensitivity_states == 3:
+        for offset in range(60, 120):
+            if sensitivity_states >= 3:
                 break
             state = find_state(
                 wrapper,
@@ -167,8 +168,12 @@ def run_preflight(
             context, directives = state
             sensitivity_states += 1
             validities: list[bool] = []
-            for directive_id in directives[:2]:
+            selected_directives = directives[:4]
+            for directive_id in selected_directives:
                 sensitivity_pairs += 1
+                sensitivity_classes.add(
+                    catalog.by_id(directive_id).behavior_key
+                )
                 request = forced_request(context, policy, catalog, directive_id)
                 _, valid, error = timed_action(actioner, validator, request, wrapper)
                 validities.append(valid)
@@ -178,7 +183,7 @@ def run_preflight(
             sensitivity_results.append(
                 {
                     "state_id": context.state_id,
-                    "directive_ids": list(directives[:2]),
+                    "directive_ids": list(selected_directives),
                     "valid": validities,
                 }
             )
@@ -199,24 +204,25 @@ def run_preflight(
         )
         failures.append("health and model identity were not verified")
     validity_passed = (
-        len(latencies) == 5 and valid_responses == 5 and len(set(classes)) >= 2
+        len(latencies) == 8 and valid_responses == 8 and len(set(classes)) == 4
     )
     sensitivity_passed = (
         sensitivity_states == 3
-        and sensitivity_pairs == 6
-        and sensitivity_valid_pairs == 6
+        and sensitivity_pairs >= 6
+        and sensitivity_valid_pairs == sensitivity_pairs
+        and len(sensitivity_classes) == 4
     )
     latency_p95 = percentile(latencies, 0.95)
     latency_passed = (
         bool(latencies) and latency_p95 <= config.preflight_p95_limit_seconds
     )
     if not validity_passed:
-        failures.append("5/5 validity and two-class coverage gate failed")
+        failures.append("8/8 validity and four-class coverage gate failed")
     if not sensitivity_passed:
-        failures.append("6/6 directive sensitivity gate failed")
+        failures.append("three-state four-class directive sensitivity gate failed")
     if not latency_passed:
         failures.append("p95 latency gate failed")
-    report = GemmaPreflightReport(
+    report = LlmPreflightReport(
         schema_version=config.schema_version,
         selected_model=config.selected_model,
         backend=config.inference.backend,
@@ -227,12 +233,14 @@ def run_preflight(
         gpu_layers=config.inference.gpu_layers,
         prompt_schema_sha256=prompt_digest,
         prompt_contract_sha256=builder.contract_digest,
+        prompt_template_sha256=builder.template_digest,
         health=health,
         warmup_completed=warmup_completed,
         measured_requests=len(latencies),
         valid_responses=valid_responses,
         invalid_responses=invalid_responses,
         directive_classes=tuple(dict.fromkeys(classes)),
+        sensitivity_directive_classes=tuple(sorted(sensitivity_classes)),
         sensitivity_states=sensitivity_states,
         sensitivity_pairs=sensitivity_pairs,
         sensitivity_valid_pairs=sensitivity_valid_pairs,

@@ -61,13 +61,13 @@ class ActionerRequest(DemoModel):
         return self.selected_directive
 
 
-class GemmaActionResponse(DemoModel):
+class LlmActionResponse(DemoModel):
     destinations: tuple[NonNegativeInt, ...] = Field(min_length=1)
     reason: str = Field(max_length=160)
 
 
 class ActionerResult(DemoModel):
-    response: GemmaActionResponse
+    response: LlmActionResponse
     raw_text: str
     model_id: NonBlankStr
     latency_ms: NonNegativeFloat
@@ -129,9 +129,9 @@ class ModelHealth(DemoModel):
         return models
 
 
-class GemmaPreflightReport(DemoModel):
-    schema_version: Literal[1, 2, 3, 4] = 2
-    selected_model: Literal["e4b", "e2b"]
+class LlmPreflightReport(DemoModel):
+    schema_version: Literal[1, 2, 3, 4, 5] = 2
+    selected_model: Literal["e4b", "e2b", "qwen3.5-2b-q8"]
     backend: Literal["llama_cpp"] = "llama_cpp"
     model_id: NonBlankStr
     model_file_sha256: Sha256
@@ -140,12 +140,14 @@ class GemmaPreflightReport(DemoModel):
     gpu_layers: NonNegativeInt
     prompt_schema_sha256: Sha256
     prompt_contract_sha256: Sha256 | None = None
+    prompt_template_sha256: Sha256 | None = None
     health: ModelHealth
     warmup_completed: bool
     measured_requests: NonNegativeInt
     valid_responses: NonNegativeInt
     invalid_responses: NonNegativeInt
     directive_classes: tuple[NonBlankStr, ...] = ()
+    sensitivity_directive_classes: tuple[NonBlankStr, ...] = ()
     sensitivity_states: NonNegativeInt = 0
     sensitivity_pairs: NonNegativeInt = 0
     sensitivity_valid_pairs: NonNegativeInt = 0
@@ -176,4 +178,6 @@ class GemmaPreflightReport(DemoModel):
             raise ValueError(
                 "legacy preflight reports cannot contain prompt_contract_sha256"
             )
+        if self.schema_version >= 5 and self.prompt_template_sha256 is None:
+            raise ValueError("schema-v5 preflight requires the exact TXT prompt digest")
         return self

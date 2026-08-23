@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import sys
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -26,9 +25,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(report.model_dump_json(indent=2))
     if report.passed:
         return 0
-    if config.selected_model == "e4b" and report.health.healthy:
-        print("E4B failed; use a separately configured E2B server.", file=sys.stderr)
-        return 2
     return 1
 
 

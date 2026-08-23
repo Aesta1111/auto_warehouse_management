@@ -13,8 +13,8 @@ from warehouse_ai.demo.contracts.directives import (
 from warehouse_ai.demo.contracts.inference import ActionerRequest
 from warehouse_ai.demo.controllers import ActionValidator, DecisionFailure
 from warehouse_ai.demo.directives import Registry
-from warehouse_ai.demo.inference.actioner import ActionerError, GemmaActioner
-from warehouse_ai.demo.inference.prompting import GemmaPromptBuilder
+from warehouse_ai.demo.inference.actioner import ActionerError, LlmActioner
+from warehouse_ai.demo.inference.prompting import LlmPromptBuilder
 from warehouse_ai.demo.ppo.policy import PpoPolicy
 from warehouse_ai.env import TarwareEnvWrapper
 
@@ -87,7 +87,7 @@ def find_state(
 
 
 def timed_action(
-    actioner: GemmaActioner,
+    actioner: LlmActioner,
     validator: ActionValidator,
     request: ActionerRequest,
     wrapper: TarwareEnvWrapper,
@@ -104,7 +104,7 @@ def timed_action(
 def prompt_schema_digest(
     context: WarehouseContext,
     request: ActionerRequest,
-    builder: GemmaPromptBuilder,
+    builder: LlmPromptBuilder,
 ) -> str:
     del context
     schema = builder.build(request).response_schema

@@ -1,4 +1,4 @@
-"""Paired parent/fine-tuned PPO evaluation with one frozen Gemma contract."""
+"""Paired parent/fine-tuned PPO evaluation with one frozen Llm contract."""
 
 from __future__ import annotations
 
@@ -17,12 +17,12 @@ from warehouse_ai.demo.contracts.finetuning import (
     FineTuneComparisonSummary,
     FineTuneEvaluationConfig,
     FineTunePolicyEvaluation,
-    GemmaFineTuneConfig,
-    GemmaFineTuneManifest,
+    LlmFineTuneConfig,
+    LlmFineTuneManifest,
 )
-from warehouse_ai.demo.controllers import ExecutorController, GemmaController
+from warehouse_ai.demo.controllers import ExecutorController, LlmController
 from warehouse_ai.demo.evaluation.episode import run_episode
-from warehouse_ai.demo.inference.actioner import GemmaActioner
+from warehouse_ai.demo.inference.actioner import LlmActioner
 from warehouse_ai.demo.inference.llama_cpp import LlamaCppBackend
 from warehouse_ai.demo.ppo.finetune_service import (
     VerifiedFineTuneArtifacts,
@@ -37,9 +37,9 @@ def _resolve(root: Path, path: Path) -> Path:
     return path if path.is_absolute() else root / path
 
 
-def _load_manifest(path: Path) -> GemmaFineTuneManifest:
+def _load_manifest(path: Path) -> LlmFineTuneManifest:
     try:
-        return GemmaFineTuneManifest.model_validate_json(
+        return LlmFineTuneManifest.model_validate_json(
             path.read_text(encoding="utf-8")
         )
     except (OSError, ValueError) as exc:
@@ -56,7 +56,7 @@ def _load_comparison(path: Path) -> FineTuneComparisonSummary:
 
 
 def _partition_seeds(
-    config: GemmaFineTuneConfig,
+    config: LlmFineTuneConfig,
     partition: str,
 ) -> tuple[int, ...]:
     if partition == "selection":
@@ -71,9 +71,9 @@ def _partition_seeds(
 def _verify_child(
     root: Path,
     evaluation: FineTuneEvaluationConfig,
-    fine_config: GemmaFineTuneConfig,
+    fine_config: LlmFineTuneConfig,
     verified: VerifiedFineTuneArtifacts,
-) -> tuple[GemmaFineTuneManifest, PpoPolicy]:
+) -> tuple[LlmFineTuneManifest, PpoPolicy]:
     manifest_path = _resolve(root, evaluation.fine_tune_manifest_path)
     checkpoint_path = _resolve(root, evaluation.fine_tune_checkpoint_path)
     manifest = _load_manifest(manifest_path)
@@ -117,7 +117,7 @@ def _verify_child(
 def verify_evaluation_prerequisite(
     root: Path,
     evaluation: FineTuneEvaluationConfig,
-    child_manifest: GemmaFineTuneManifest,
+    child_manifest: LlmFineTuneManifest,
 ) -> None:
     """Require a passing exact prior partition before exposing later seeds."""
     if evaluation.partition == "selection":
@@ -142,20 +142,20 @@ def _run_policy(
     label: str,
     policy: PpoPolicy,
     seeds: Sequence[int],
-    config: GemmaFineTuneConfig,
+    config: LlmFineTuneConfig,
     verified: VerifiedFineTuneArtifacts,
-    actioner: GemmaActioner,
+    actioner: LlmActioner,
     run_directory: Path,
 ) -> FineTunePolicyEvaluation:
     executor_results: list[EpisodeResult] = []
-    gemma_results: list[EpisodeResult] = []
+    llm_results: list[EpisodeResult] = []
     for seed in seeds:
-        for mode in ("executor", "gemma"):
+        for mode in ("executor", "llm"):
             wrapper = TarwareEnvWrapper(config.environment_id)
             controller = (
                 ExecutorController(policy, verified.registry)
                 if mode == "executor"
-                else GemmaController(policy, verified.registry, actioner)
+                else LlmController(policy, verified.registry, actioner)
             )
             try:
                 result = run_episode(
@@ -179,20 +179,20 @@ def _run_policy(
             if mode == "executor":
                 executor_results.append(result)
             else:
-                gemma_results.append(result)
+                llm_results.append(result)
     return FineTunePolicyEvaluation(
         policy="parent" if label == "parent" else "fine_tuned",
         executor_episodes=tuple(executor_results),
-        gemma_episodes=tuple(gemma_results),
+        llm_episodes=tuple(llm_results),
     )
 
 
-def is_better_gemma_candidate(
+def is_better_llm_candidate(
     parent: FineTunePolicyEvaluation,
     candidate: FineTunePolicyEvaluation,
 ) -> bool:
     def score(evaluation: FineTunePolicyEvaluation) -> tuple[float, float, float]:
-        episodes = evaluation.gemma_episodes
+        episodes = evaluation.llm_episodes
         calls = sum(item.llm_calls for item in episodes)
         fallback_rate = sum(item.fallbacks for item in episodes) / max(calls, 1)
         return (
@@ -203,7 +203,7 @@ def is_better_gemma_candidate(
 
     commands = {
         command
-        for episode in candidate.gemma_episodes
+        for episode in candidate.llm_episodes
         for command, count in episode.directive_counts.items()
         if command != "wait" and count > 0
     }
@@ -213,7 +213,7 @@ def is_better_gemma_candidate(
 def run_fine_tune_comparison(
     evaluation: FineTuneEvaluationConfig,
     *,
-    fine_config: GemmaFineTuneConfig,
+    fine_config: LlmFineTuneConfig,
     repository_root: Path,
 ) -> FineTuneComparisonSummary:
     """Run one explicitly selected seed partition; never train or select here."""
@@ -234,7 +234,7 @@ def run_fine_tune_comparison(
     git_commit, _ = capture_git_state(root)
     run_directory = create_run_directory(
         _resolve(root, evaluation.output_directory),
-        controller_name=f"gemma-finetune-{evaluation.partition}",
+        controller_name=f"llm-finetune-{evaluation.partition}",
         created_at_utc=datetime.now(timezone.utc),
         git_commit=git_commit,
     )
@@ -242,8 +242,8 @@ def run_fine_tune_comparison(
     try:
         health = backend.health()
         if not health.healthy:
-            raise RuntimeError("configured Gemma server is not healthy")
-        actioner = GemmaActioner(backend, verified.prompt_builder)
+            raise RuntimeError("configured Llm server is not healthy")
+        actioner = LlmActioner(backend, verified.prompt_builder)
         parent = _run_policy(
             label="parent",
             policy=verified.parent_policy,
@@ -275,7 +275,7 @@ def run_fine_tune_comparison(
         preflight_report_sha256=verified.identity.preflight_report_sha256,
         parent=parent,
         fine_tuned=child,
-        candidate_better=is_better_gemma_candidate(parent, child),
+        candidate_better=is_better_llm_candidate(parent, child),
         output_directory=run_directory.relative_to(root),
     )
     write_json_atomic(run_directory / "fine-tuning-comparison.json", summary)

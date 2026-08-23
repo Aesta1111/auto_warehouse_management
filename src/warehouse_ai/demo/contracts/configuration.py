@@ -25,7 +25,7 @@ from warehouse_ai.demo.contracts.base import (
 from warehouse_ai.demo.contracts.evaluation import DemoConfig
 from warehouse_ai.demo.contracts.finetuning import (
     FineTuneEvaluationConfig,
-    GemmaFineTuneConfig,
+    LlmFineTuneConfig,
 )
 from warehouse_ai.demo.contracts.inference import LlamaCppBackendConfig
 from warehouse_ai.demo.contracts.ppo import PpoConfig
@@ -34,7 +34,7 @@ from warehouse_ai.demo.contracts.ppo import PpoConfig
 class PpoModelConfig(DemoModel):
     """Reusable PPO network and implementation identity."""
 
-    schema_version: Literal[1] = 1
+    schema_version: Literal[1, 2] = 2
     model_id: NonBlankStr
     hidden_sizes: tuple[PositiveInt, ...]
     backend: Literal["lightning-fabric"] = "lightning-fabric"
@@ -55,9 +55,9 @@ class PpoModelConfig(DemoModel):
 class LlmActionerConfig(DemoModel):
     """Reusable frozen-LLM actioner, prompt, and runtime contract."""
 
-    schema_version: Literal[1] = 1
+    schema_version: Literal[1, 2] = 2
     actioner_id: NonBlankStr
-    selected_model: Literal["e4b", "e2b"]
+    selected_model: Literal["e4b", "e2b", "qwen3.5-2b-q8"]
     vocabulary_path: RepositoryPath
     prompt_spec_path: RepositoryPath
     inference: LlamaCppBackendConfig
@@ -67,7 +67,7 @@ class LlmActionerConfig(DemoModel):
 class PpoTrainingRunConfig(DemoModel):
     """Environment, data partitions, optimization, and output for PPO training."""
 
-    schema_version: Literal[1] = 1
+    schema_version: Literal[1, 2] = 2
     run_id: NonBlankStr
     model_config_path: RepositoryPath
     environment_id: NonBlankStr
@@ -78,6 +78,7 @@ class PpoTrainingRunConfig(DemoModel):
     algorithm_seed: int = 8100
     episode_steps: PositiveInt = 500
     total_timesteps: PositiveInt = 25_000
+    accelerator: Literal["auto", "cpu", "cuda"] = "auto"
     learning_rate: PositiveFloat = 3e-4
     n_steps: PositiveInt = 256
     batch_size: PositiveInt = 64
@@ -111,7 +112,7 @@ class PpoTrainingRunConfig(DemoModel):
 class PpoFineTuningRunConfig(DemoModel):
     """Warm-started PPO adaptation run through one frozen LLM actioner."""
 
-    schema_version: Literal[1] = 1
+    schema_version: Literal[1, 2] = 2
     run_id: NonBlankStr
     ppo_training_run_config_path: RepositoryPath
     llm_actioner_config_path: RepositoryPath
@@ -126,6 +127,7 @@ class PpoFineTuningRunConfig(DemoModel):
     algorithm_seed: int = 8300
     episode_steps: PositiveInt = 500
     total_timesteps: PositiveInt = 1_024
+    accelerator: Literal["auto", "cpu", "cuda"] = "auto"
     learning_rate: PositiveFloat = 3e-5
     n_steps: PositiveInt = 256
     batch_size: PositiveInt = 64
@@ -180,16 +182,18 @@ class PpoFineTuningRunConfig(DemoModel):
 class PpoEvaluationRunConfig(DemoModel):
     """One evaluation plan for preflight, matched demo, and gated comparison."""
 
-    schema_version: Literal[1] = 1
+    schema_version: Literal[1, 2] = 2
     run_id: NonBlankStr
     fine_tuning_run_config_path: RepositoryPath
     fine_tuned_checkpoint_path: RepositoryPath
     fine_tuned_manifest_path: RepositoryPath
     directive_probe_report_path: RepositoryPath
     output_directory: RepositoryPath
-    episode_seed: int = 9100
+    episode_seed: int | None = None
+    matched_demo_seed: int = 9300
+    final_evaluation_seed: int = 9200
     episode_steps: PositiveInt = 500
-    render_gemma: bool = True
+    render_llm: bool = True
     prerequisite_summary_paths: dict[Literal["confirmation", "final"], RepositoryPath]
 
     @field_validator("prerequisite_summary_paths")
@@ -204,6 +208,16 @@ class PpoEvaluationRunConfig(DemoModel):
             )
         return dict(value)
 
+    @model_validator(mode="after")
+    def validate_seed_roles(self) -> Self:
+        if self.schema_version == 1:
+            if self.episode_seed is None:
+                raise ValueError("schema-v1 evaluation configs require episode_seed")
+            return self
+        if self.episode_seed is not None:
+            raise ValueError("schema-v2 evaluation configs use matched_demo_seed")
+        return self
+
 
 @dataclass(frozen=True)
 class LoadedPpoTrainingRun:
@@ -217,7 +231,7 @@ class LoadedPpoFineTuningRun:
     run: PpoFineTuningRunConfig
     parent_run: LoadedPpoTrainingRun
     actioner: LlmActionerConfig
-    runtime: GemmaFineTuneConfig
+    runtime: LlmFineTuneConfig
 
 
 @dataclass(frozen=True)
@@ -229,11 +243,15 @@ class LoadedPpoEvaluationRun:
         parent = self.fine_tuning.runtime
         actioner = self.fine_tuning.actioner
         return DemoConfig(
-            schema_version=4,
+            schema_version=5,
             environment_id=parent.environment_id,
-            episode_seed=self.run.episode_seed,
+            episode_seed=(
+                self.run.episode_seed
+                if self.run.schema_version == 1
+                else self.run.matched_demo_seed
+            ),
             episode_steps=self.run.episode_steps,
-            render_hybrid=self.run.render_gemma,
+            render_hybrid=self.run.render_llm,
             vocabulary_path=parent.vocabulary_path,
             prompt_spec_path=parent.prompt_spec_path,
             directive_probe_report_path=self.run.directive_probe_report_path,
@@ -256,7 +274,7 @@ class LoadedPpoEvaluationRun:
             else self.run.prerequisite_summary_paths[partition]
         )
         return FineTuneEvaluationConfig(
-            schema_version=2,
+            schema_version=3,
             fine_tune_config_path=self.run.fine_tuning_run_config_path,
             fine_tune_checkpoint_path=self.run.fine_tuned_checkpoint_path,
             fine_tune_manifest_path=self.run.fine_tuned_manifest_path,
@@ -275,7 +293,7 @@ def load_ppo_training_run(path: Path, repository_root: Path) -> LoadedPpoTrainin
     run = load_yaml_config(_resolve(root, path), PpoTrainingRunConfig)
     model = load_yaml_config(_resolve(root, run.model_config_path), PpoModelConfig)
     runtime = PpoConfig(
-        schema_version=4,
+        schema_version=5,
         environment_id=run.environment_id,
         vocabulary_path=run.vocabulary_path,
         train_seeds=run.train_seeds,
@@ -283,6 +301,7 @@ def load_ppo_training_run(path: Path, repository_root: Path) -> LoadedPpoTrainin
         algorithm_seed=run.algorithm_seed,
         episode_steps=run.episode_steps,
         total_timesteps=run.total_timesteps,
+        accelerator=run.accelerator,
         learning_rate=run.learning_rate,
         n_steps=run.n_steps,
         batch_size=run.batch_size,
@@ -319,8 +338,8 @@ def load_ppo_fine_tuning_run(
         raise ValueError("PPO training and LLM actioner vocabularies differ")
     if run.episode_steps != parent_run.run.episode_steps:
         raise ValueError("fine-tuning and parent PPO episode lengths differ")
-    runtime = GemmaFineTuneConfig(
-        schema_version=2,
+    runtime = LlmFineTuneConfig(
+        schema_version=3,
         environment_id=parent_run.run.environment_id,
         vocabulary_path=parent_run.run.vocabulary_path,
         parent_checkpoint_path=run.parent_checkpoint_path,
@@ -335,6 +354,7 @@ def load_ppo_fine_tuning_run(
         algorithm_seed=run.algorithm_seed,
         episode_steps=run.episode_steps,
         total_timesteps=run.total_timesteps,
+        accelerator=run.accelerator,
         learning_rate=run.learning_rate,
         n_steps=run.n_steps,
         batch_size=run.batch_size,
@@ -367,9 +387,14 @@ def load_ppo_evaluation_run(
     root = repository_root.resolve()
     run = load_yaml_config(_resolve(root, path), PpoEvaluationRunConfig)
     fine_tuning = load_ppo_fine_tuning_run(run.fine_tuning_run_config_path, root)
-    if run.episode_seed not in fine_tuning.run.final_evaluation_seeds:
+    final_seed = (
+        run.episode_seed
+        if run.schema_version == 1
+        else run.final_evaluation_seed
+    )
+    if final_seed not in fine_tuning.run.final_evaluation_seeds:
         raise ValueError(
-            "evaluation episode_seed must be reserved for final evaluation"
+            "evaluation final seed must be reserved for final evaluation"
         )
     if run.episode_steps != fine_tuning.run.episode_steps:
         raise ValueError("evaluation and fine-tuning episode lengths differ")

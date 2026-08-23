@@ -17,7 +17,7 @@ from warehouse_ai.demo.contracts.directives import (
     DirectiveCatalog,
 )
 from warehouse_ai.demo.contracts.configuration import load_ppo_fine_tuning_run
-from warehouse_ai.demo.contracts.finetuning import GemmaFineTuneConfig
+from warehouse_ai.demo.contracts.finetuning import LlmFineTuneConfig
 from warehouse_ai.demo.contracts.inference import LlamaCppBackendConfig
 from warehouse_ai.demo.contracts.ppo import PpoConfig
 from warehouse_ai.domain import ActionMask, AgentObservation, AgentRole, Position
@@ -64,15 +64,15 @@ def test_committed_catalog_and_probe_configs_load() -> None:
     assert probe.vocabulary_path.as_posix() == "configs/demo/directive-catalog.yaml"
 
 
-def test_gemma_fine_tune_config_rejects_overlapping_partitions() -> None:
+def test_llm_fine_tune_config_rejects_overlapping_partitions() -> None:
     config = load_ppo_fine_tuning_run(
-        Path("configs/demo/ppo-gemma-fine-tuning-run.yaml"), ROOT
+        Path("configs/demo/ppo-llm-fine-tuning-run.yaml"), ROOT
     ).runtime
     values = config.model_dump()
     values["confirmation_seeds"] = (8201, 8203)
 
     with pytest.raises(ValueError, match="selection and confirmation seeds overlap"):
-        GemmaFineTuneConfig.model_validate(values)
+        LlmFineTuneConfig.model_validate(values)
 
 
 def test_contract_import_does_not_load_ml_or_transport_frameworks() -> None:
@@ -214,7 +214,7 @@ def test_configs_reject_absolute_paths_overlapping_seeds_and_bad_urls() -> None:
     with pytest.raises(ValidationError, match="base_url"):
         LlamaCppBackendConfig(
             base_url=cast(Any, "not-a-url"),
-            model_id="gemma",
+            model_id="llm",
             model_file_sha256="0" * 64,
             context_size=1,
             gpu_layers=0,

@@ -28,14 +28,14 @@ def test_five_composed_configs_load_with_descriptive_names() -> None:
     )
     training = load_ppo_training_run(Path("configs/demo/ppo-training-run.yaml"), ROOT)
     fine_tuning = load_ppo_fine_tuning_run(
-        Path("configs/demo/ppo-gemma-fine-tuning-run.yaml"), ROOT
+        Path("configs/demo/ppo-llm-fine-tuning-run.yaml"), ROOT
     )
     evaluation = load_ppo_evaluation_run(
-        Path("configs/demo/ppo-gemma-evaluation-run.yaml"), ROOT
+        Path("configs/demo/ppo-llm-evaluation-run.yaml"), ROOT
     )
 
-    assert model.hidden_sizes == (64,)
-    assert actioner.actioner_id == "gemma-e4b-few-shot-actioner"
+    assert model.hidden_sizes == (256, 256, 256, 256)
+    assert actioner.actioner_id == "qwen3.5-2b-q8-llm-actioner"
     assert training.model == model
     assert training.runtime.hidden_sizes == model.hidden_sizes
     assert fine_tuning.actioner == actioner
@@ -43,8 +43,16 @@ def test_five_composed_configs_load_with_descriptive_names() -> None:
     assert evaluation.demo_runtime().prompt_spec_path == actioner.prompt_spec_path
     assert evaluation.comparison_runtime("selection").prerequisite_summary_path is None
     assert evaluation.comparison_runtime("confirmation").prerequisite_summary_path == (
-        Path("results/demo/ppo-gemma-fine-tuning/selection-gate.json")
+        Path(
+            "results/demo/ppo-llm-fine-tuning-4x256-qwen3.5-4096-cuda/selection-gate.json"
+        )
     )
+    assert training.run.total_timesteps == 100_000
+    assert training.run.accelerator == "cuda"
+    assert fine_tuning.run.total_timesteps == 4_096
+    assert fine_tuning.run.accelerator == "cuda"
+    assert evaluation.run.matched_demo_seed == 9300
+    assert evaluation.run.final_evaluation_seed == 9200
 
 
 def test_top_level_config_contracts_are_strict() -> None:
@@ -63,7 +71,7 @@ def test_top_level_config_contracts_are_strict() -> None:
         )
 
     fine_tuning = load_yaml_config(
-        ROOT / "configs/demo/ppo-gemma-fine-tuning-run.yaml",
+        ROOT / "configs/demo/ppo-llm-fine-tuning-run.yaml",
         PpoFineTuningRunConfig,
     )
     with pytest.raises(ValidationError, match="overlap"):
@@ -72,7 +80,7 @@ def test_top_level_config_contracts_are_strict() -> None:
         )
 
     evaluation = load_yaml_config(
-        ROOT / "configs/demo/ppo-gemma-evaluation-run.yaml",
+        ROOT / "configs/demo/ppo-llm-evaluation-run.yaml",
         PpoEvaluationRunConfig,
     )
     with pytest.raises(ValidationError, match="confirmation and final"):

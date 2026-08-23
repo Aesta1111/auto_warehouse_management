@@ -1,4 +1,4 @@
-"""Fail-closed composition for one live Gemma PPO fine-tuning run."""
+"""Fail-closed composition for one live Llm PPO fine-tuning run."""
 
 from __future__ import annotations
 
@@ -8,22 +8,22 @@ from pathlib import Path
 from warehouse_ai.demo.artifacts import sha256_file, write_json_atomic
 from warehouse_ai.demo.contracts.directives import DirectiveCatalog
 from warehouse_ai.demo.contracts.finetuning import (
-    GemmaFineTuneConfig,
-    GemmaFineTuneManifest,
+    LlmFineTuneConfig,
+    LlmFineTuneManifest,
 )
-from warehouse_ai.demo.contracts.inference import GemmaPreflightReport
+from warehouse_ai.demo.contracts.inference import LlmPreflightReport
 from warehouse_ai.demo.contracts.ppo import PpoManifest
 from warehouse_ai.demo.directives import Registry, build_registry
-from warehouse_ai.demo.inference.actioner import GemmaActioner
+from warehouse_ai.demo.inference.actioner import LlmActioner
 from warehouse_ai.demo.inference.llama_cpp import LlamaCppBackend
-from warehouse_ai.demo.inference.prompting import GemmaPromptBuilder
+from warehouse_ai.demo.inference.prompting import LlmPromptBuilder
 from warehouse_ai.demo.ppo.finetuning import (
     CHECKPOINT_NAME,
     FineTuneArtifactIdentity,
-    GemmaFineTuneLoop,
+    LlmFineTuneLoop,
     warm_start_model,
 )
-from warehouse_ai.demo.ppo.gemma_environment import GemmaGymEnv
+from warehouse_ai.demo.ppo.llm_environment import LlmGymEnv
 from warehouse_ai.demo.ppo.policy import PpoPolicy
 
 
@@ -33,7 +33,7 @@ class VerifiedFineTuneArtifacts:
     registry: Registry
     parent_manifest: PpoManifest
     parent_policy: PpoPolicy
-    prompt_builder: GemmaPromptBuilder
+    prompt_builder: LlmPromptBuilder
     identity: FineTuneArtifactIdentity
 
 
@@ -49,27 +49,27 @@ def _load_json(path: Path, model_type):  # type: ignore[no-untyped-def]
 
 
 def verify_fine_tune_artifacts(
-    config: GemmaFineTuneConfig,
+    config: LlmFineTuneConfig,
     repository_root: Path,
 ) -> VerifiedFineTuneArtifacts:
-    """Verify the parent PPO and exact frozen Gemma contract before training."""
+    """Verify the parent PPO and exact frozen Llm contract before training."""
     catalog = DirectiveCatalog.load(_resolve(repository_root, config.vocabulary_path))
     registry = build_registry(catalog)
     parent_manifest_path = _resolve(repository_root, config.parent_manifest_path)
     parent_checkpoint_path = _resolve(repository_root, config.parent_checkpoint_path)
     preflight_path = _resolve(repository_root, config.preflight_report_path)
     parent_manifest = _load_json(parent_manifest_path, PpoManifest)
-    preflight = _load_json(preflight_path, GemmaPreflightReport)
-    prompt_builder = GemmaPromptBuilder.load(
+    preflight = _load_json(preflight_path, LlmPreflightReport)
+    prompt_builder = LlmPromptBuilder.load(
         _resolve(repository_root, config.prompt_spec_path), catalog
     )
     prompt_digest = prompt_builder.contract_digest
     if prompt_digest is None:
-        raise ValueError("Gemma fine-tuning requires a versioned prompt contract")
+        raise ValueError("Llm fine-tuning requires a versioned prompt contract")
     expected_schema = config.schema_version + 2
     if parent_manifest.schema_version != expected_schema:
         raise ValueError(
-            "Gemma fine-tuning requires its version-matched PPO parent schema"
+            "Llm fine-tuning requires its version-matched PPO parent schema"
         )
     if parent_manifest.environment_id != config.environment_id:
         raise ValueError("parent PPO environment does not match fine-tuning config")
@@ -92,6 +92,10 @@ def verify_fine_tune_artifacts(
         preflight.schema_version != expected_schema
         or not preflight.passed
         or preflight.prompt_contract_sha256 != prompt_digest
+        or (
+            config.schema_version >= 3
+            and preflight.prompt_template_sha256 != prompt_builder.template_digest
+        )
     ):
         raise ValueError("fine-tuning requires a passing exact versioned preflight")
     inference = config.inference
@@ -118,12 +122,12 @@ def verify_fine_tune_artifacts(
     )
 
 
-def run_gemma_fine_tune(
-    config: GemmaFineTuneConfig,
+def run_llm_fine_tune(
+    config: LlmFineTuneConfig,
     *,
     repository_root: Path,
-) -> GemmaFineTuneManifest:
-    """Run one intentionally explicit, expensive frozen-Gemma fine-tune."""
+) -> LlmFineTuneManifest:
+    """Run one intentionally explicit, expensive frozen-Llm fine-tune."""
     root = repository_root.resolve()
     verified = verify_fine_tune_artifacts(config, root)
     output = _resolve(root, config.output_directory)
@@ -135,15 +139,15 @@ def run_gemma_fine_tune(
             "fine-tuning output already exists; choose a new directory"
         )
     backend = LlamaCppBackend(config.inference)
-    environment: GemmaGymEnv | None = None
+    environment: LlmGymEnv | None = None
     try:
         health = backend.health()
         if not health.healthy or config.inference.model_id not in (
             health.advertised_model_ids
         ):
-            raise RuntimeError("configured Gemma server is not healthy")
-        actioner = GemmaActioner(backend, verified.prompt_builder)
-        environment = GemmaGymEnv(
+            raise RuntimeError("configured Llm server is not healthy")
+        actioner = LlmActioner(backend, verified.prompt_builder)
+        environment = LlmGymEnv(
             config.environment_id,
             verified.catalog,
             verified.registry,
@@ -155,7 +159,7 @@ def run_gemma_fine_tune(
         )
         model = warm_start_model(config, verified.catalog, verified.parent_policy)
         reference = warm_start_model(config, verified.catalog, verified.parent_policy)
-        manifest = GemmaFineTuneLoop().fit(
+        manifest = LlmFineTuneLoop().fit(
             model,
             reference,
             config,

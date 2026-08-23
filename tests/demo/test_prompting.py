@@ -14,11 +14,11 @@ from warehouse_ai.demo.contracts.directives import (
 )
 from warehouse_ai.demo.contracts.inference import (
     ActionerRequest,
-    GemmaActionResponse,
+    LlmActionResponse,
 )
-from warehouse_ai.demo.contracts.prompting import GemmaPromptSpec
+from warehouse_ai.demo.contracts.prompting import LlmPromptSpec
 from warehouse_ai.demo.contracts.base import load_yaml_config
-from warehouse_ai.demo.inference.prompting import GemmaPromptBuilder
+from warehouse_ai.demo.inference.prompting import LlmPromptBuilder
 from warehouse_ai.env import TarwareEnvWrapper
 
 
@@ -42,9 +42,9 @@ def wrapped_env():
 
 
 @pytest.fixture
-def prompt_spec() -> GemmaPromptSpec:
+def prompt_spec() -> LlmPromptSpec:
     return load_yaml_config(
-        ROOT / "configs/demo/gemma-actioner-few-shot-prompt.yaml", GemmaPromptSpec
+        ROOT / "configs/demo/llm-actioner-few-shot-prompt.yaml", LlmPromptSpec
     )
 
 
@@ -66,7 +66,7 @@ def test_prompt_and_schema_are_deterministic_and_state_only(
     catalog: DirectiveCatalog, wrapped_env: TarwareEnvWrapper
 ) -> None:
     request = _request(wrapped_env, catalog)
-    builder = GemmaPromptBuilder()
+    builder = LlmPromptBuilder()
 
     first = builder.build(request)
     second = builder.build(request)
@@ -114,48 +114,41 @@ def test_prompt_and_schema_are_deterministic_and_state_only(
 
 def test_few_shot_prompt_is_deterministic_and_excludes_catalog_description(
     catalog: DirectiveCatalog,
-    prompt_spec: GemmaPromptSpec,
+    prompt_spec: LlmPromptSpec,
     wrapped_env: TarwareEnvWrapper,
 ) -> None:
     request = _request(wrapped_env, catalog)
-    builder = GemmaPromptBuilder(prompt_spec, catalog)
+    builder = LlmPromptBuilder.load(
+        ROOT / "configs/demo/llm-actioner-few-shot-prompt.yaml", catalog
+    )
 
     first = builder.build(request)
     second = builder.build(request)
 
     assert first == second
-    assert len(first.messages) == 10
-    assert [message.role for message in first.messages] == [
-        "system",
-        "user",
-        "assistant",
-        "user",
-        "assistant",
-        "user",
-        "assistant",
-        "user",
-        "assistant",
-        "user",
-    ]
-    live_text = first.messages[-1].content
+    assert len(first.messages) == 2
+    assert [message.role for message in first.messages] == ["system", "user"]
+    live_text = first.messages[1].content
     all_text = "\n".join(message.content for message in first.messages)
-    assert "instruction:" in live_text
-    assert "description:" not in all_text
-    assert request.prediction.directive.description not in all_text
-    assert "JOINT-ACTION SAFETY RULES" in live_text
-    assert "OUTPUT INSTRUCTIONS" in live_text
+    assert "command: service-requested-shelf" in live_text
+    assert "instruction: Prefer a legal destination that advances requested shelf work." in live_text
+    assert request.prediction.directive.description in all_text
+    assert "GLOBAL RULES" in live_text
+    assert "FINAL CHECK" in live_text
+    assert "SELECTED DIRECTIVE" in live_text
+    assert "LIVE STATE" in live_text
     assert "probabilities" not in all_text
     assert "value_estimate" not in all_text
     assert "9100" not in all_text
-    assert (
-        sum(
-            "SYNTHETIC FEW-SHOT EXAMPLE" in message.content
-            for message in first.messages
-        )
-        == 4
-    )
+    assert live_text.count("## WAIT EXAMPLE") == 3
+    assert live_text.count("## SERVICE REQUESTED SHELF EXAMPLE") == 3
+    assert live_text.count("## DELIVER CARRIED SHELF EXAMPLE") == 3
+    assert live_text.count("## REPOSITION IDLE AGENT EXAMPLE") == 3
+    assert live_text.count("EXAMPLE ") == prompt_spec.example_count
+    assert "{{SELECTED_DIRECTIVE" not in live_text
+    assert "{{LIVE_STATE_JSON}}" not in live_text
     assert builder.contract_digest == (
-        "923ca9f418d9f6bb0c1f12071b8352d0e81dcebb233a9cacbb5d4fba00db04be"
+        "b7c1ad9a7ca22a8e658dfdeeaa1be41eec21236444d76d428881b89be16295b8"
     )
     messages_json = json.dumps(
         [message.model_dump(mode="json") for message in first.messages],
@@ -164,53 +157,54 @@ def test_few_shot_prompt_is_deterministic_and_excludes_catalog_description(
         sort_keys=True,
     )
     assert hashlib.sha256(messages_json.encode()).hexdigest() == (
-        "2c0a3f67ff674d7cc052320e36b77a5282182fdbc744c922bdb6b1933b5375fe"
+        "c5400b4ee2946df3f0175434092a9da6e934bf4b541ab430f294cf0252f1cc37"
+    )
+    assert builder.template_digest == (
+        "9d7301b3652de4d8456234c925149cdcc1d6d69c6c96cd28b17cb2e73f0c1d38"
     )
 
 
 def test_prompt_spec_rejects_incomplete_or_misaligned_examples(
-    prompt_spec: GemmaPromptSpec,
+    catalog: DirectiveCatalog,
+    prompt_spec: LlmPromptSpec,
 ) -> None:
     missing_directive = prompt_spec.model_dump(mode="json")
-    missing_directive["directives"] = missing_directive["directives"][:-1]
+    missing_directive["required_behavior_keys"] = missing_directive[
+        "required_behavior_keys"
+    ][:-1]
     with pytest.raises(ValidationError):
-        GemmaPromptSpec.model_validate(missing_directive)
+        LlmPromptSpec.model_validate(missing_directive)
 
-    blank_instruction = prompt_spec.model_dump(mode="json")
-    blank_instruction["directives"][0]["instruction"] = " "
-    with pytest.raises(ValidationError, match="blank"):
-        GemmaPromptSpec.model_validate(blank_instruction)
+    wrong_count = prompt_spec.model_dump(mode="json")
+    wrong_count["example_count"] = 11
+    with pytest.raises(ValidationError, match="example_count"):
+        LlmPromptSpec.model_validate(wrong_count)
 
-    missing_example = prompt_spec.model_dump(mode="json")
-    del missing_example["directives"][0]["example"]
-    with pytest.raises(ValidationError, match="Field required"):
-        GemmaPromptSpec.model_validate(missing_example)
-
-    malformed_response = prompt_spec.model_dump(mode="json")
-    malformed_response["directives"][0]["example"]["response"]["extra"] = True
-    with pytest.raises(ValidationError, match="Extra inputs"):
-        GemmaPromptSpec.model_validate(malformed_response)
-
-    wrong_length = prompt_spec.model_dump(mode="json")
-    wrong_length["directives"][0]["example"]["response"]["destinations"] = [
-        0,
-        0,
-        0,
-        0,
+    duplicate_key = prompt_spec.model_dump(mode="json")
+    duplicate_key["required_behavior_keys"] = [
+        "wait",
+        "wait",
+        "deliver_carried_shelf",
+        "reposition_idle_agent",
     ]
-    with pytest.raises(ValidationError, match="one destination per agent"):
-        GemmaPromptSpec.model_validate(wrong_length)
+    with pytest.raises(ValidationError):
+        LlmPromptSpec.model_validate(duplicate_key)
 
-    illegal = prompt_spec.model_dump(mode="json")
-    illegal["directives"][1]["example"]["response"]["destinations"][0] = 99
-    with pytest.raises(ValidationError, match="illegal destination"):
-        GemmaPromptSpec.model_validate(illegal)
+    misaligned_command = prompt_spec.model_copy(
+        update={
+            "command_metadata": {
+                **prompt_spec.command_metadata,
+                "wait": "not-wait",
+            }
+        }
+    )
+    with pytest.raises(ValueError, match="command metadata"):
+        misaligned_command.validate_catalog(catalog)
 
-    duplicate = prompt_spec.model_dump(mode="json")
-    duplicate["directives"][1]["example"]["legal_destinations"][1] = [0, 11]
-    duplicate["directives"][1]["example"]["response"]["destinations"][1] = 11
-    with pytest.raises(ValidationError, match="same-role duplicate"):
-        GemmaPromptSpec.model_validate(duplicate)
+    missing_template = prompt_spec.model_dump(mode="json")
+    missing_template["prompt_template_path"] = None
+    with pytest.raises(ValidationError, match="TXT path"):
+        LlmPromptSpec.model_validate(missing_template)
 
 
 def test_actioner_records_reject_mismatched_request_state(
@@ -224,6 +218,6 @@ def test_actioner_records_reject_mismatched_request_state(
         )
 
 
-def test_gemma_response_reason_is_bounded() -> None:
+def test_llm_response_reason_is_bounded() -> None:
     with pytest.raises(ValidationError, match="at most 160"):
-        GemmaActionResponse(destinations=(0,), reason="x" * 161)
+        LlmActionResponse(destinations=(0,), reason="x" * 161)

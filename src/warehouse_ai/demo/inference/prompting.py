@@ -18,7 +18,7 @@ from warehouse_ai.demo.contracts.inference import (
     ChatMessage,
     PromptEnvelope,
 )
-from warehouse_ai.demo.contracts.prompting import GemmaPromptSpec
+from warehouse_ai.demo.contracts.prompting import LlmPromptSpec
 from warehouse_ai.demo.inference.prompt_examples import render_example_user
 
 
@@ -29,7 +29,16 @@ _SYSTEM_MESSAGE = (
     "before it reaches the simulator."
 )
 
-_FEW_SHOT_TEMPLATE_VERSION = "directive-few-shot-chat-v1"
+_FEW_SHOT_TEMPLATE_VERSION = "directive-llm-few-shot-chat-v2"
+_TEMPLATE_MARKERS = frozenset(
+    {
+        "{{SELECTED_DIRECTIVE_BEHAVIOR_KEY}}",
+        "{{SELECTED_DIRECTIVE_COMMAND}}",
+        "{{SELECTED_DIRECTIVE_INSTRUCTION}}",
+        "{{LIVE_STATE_JSON}}",
+        "{{AGENT_COUNT}}",
+    }
+)
 
 
 def _position(value: Any) -> list[int]:
@@ -50,36 +59,83 @@ def _agent(agent: Any) -> dict[str, Any]:
     }
 
 
-class GemmaPromptBuilder:
+class LlmPromptBuilder:
     """Render proven wording from a compact canonical state representation."""
 
     def __init__(
         self,
-        prompt_spec: GemmaPromptSpec | None = None,
+        prompt_spec: LlmPromptSpec | None = None,
         catalog: DirectiveCatalog | None = None,
+        *,
+        template_bytes: bytes | None = None,
     ) -> None:
         if (prompt_spec is None) != (catalog is None):
             raise ValueError("few-shot prompting requires both prompt spec and catalog")
         if prompt_spec is not None and catalog is not None:
             prompt_spec.validate_catalog(catalog)
+        if prompt_spec is not None and prompt_spec.schema_version == 2:
+            if template_bytes is None:
+                raise ValueError("schema-v2 prompt specs require external template bytes")
+            template = template_bytes.decode("utf-8")
+            missing = sorted(
+                marker for marker in _TEMPLATE_MARKERS if marker not in template
+            )
+            if missing:
+                raise ValueError(f"prompt template is missing markers: {missing}")
+            for behavior_key in prompt_spec.required_behavior_keys:
+                heading = f"## {behavior_key.replace('_', ' ').upper()} EXAMPLE"
+                if template.count(heading) != prompt_spec.examples_per_directive:
+                    raise ValueError(
+                        f"prompt template must contain {prompt_spec.examples_per_directive} "
+                        f"examples for {behavior_key}"
+                    )
+        if prompt_spec is not None and prompt_spec.schema_version == 1:
+            if template_bytes is not None:
+                raise ValueError("schema-v1 prompt specs cannot provide template bytes")
         self.prompt_spec = prompt_spec
+        self._template_bytes = template_bytes
 
     @classmethod
-    def load(cls, path: Path, catalog: DirectiveCatalog) -> GemmaPromptBuilder:
-        return cls(load_yaml_config(path, GemmaPromptSpec), catalog)
+    def load(cls, path: Path, catalog: DirectiveCatalog) -> LlmPromptBuilder:
+        spec = load_yaml_config(path, LlmPromptSpec)
+        template_bytes = None
+        if spec.schema_version == 2:
+            assert spec.prompt_template_path is not None
+            template_path = path.parent / spec.prompt_template_path
+            try:
+                template_bytes = template_path.read_bytes()
+            except OSError as exc:
+                raise ValueError(f"could not load prompt template {template_path}") from exc
+        return cls(spec, catalog, template_bytes=template_bytes)
 
     @property
     def contract_digest(self) -> str | None:
         if self.prompt_spec is None:
             return None
-        return sha256_bytes(
-            canonical_json_bytes(
-                {
-                    "template_version": _FEW_SHOT_TEMPLATE_VERSION,
-                    "prompt_spec": self.prompt_spec,
-                }
-            )
+        metadata = canonical_json_bytes(
+            {
+                "template_version": (
+                    self.prompt_spec.template_version
+                    or (
+                        "directive-few-shot-chat-v1"
+                        if self.prompt_spec.schema_version == 1
+                        else _FEW_SHOT_TEMPLATE_VERSION
+                    )
+                ),
+                "prompt_spec": self.prompt_spec,
+            }
         )
+        if self.prompt_spec.schema_version == 2:
+            assert self._template_bytes is not None
+            return sha256_bytes(metadata + b"\n" + self._template_bytes)
+        return sha256_bytes(metadata)
+
+    @property
+    def template_digest(self) -> str | None:
+        """Digest the exact external prompt bytes, preserving line endings."""
+        if self._template_bytes is None:
+            return None
+        return sha256_bytes(self._template_bytes)
 
     def state_payload(
         self, context: WarehouseContext, *, directive: dict[str, Any] | None = None
@@ -120,6 +176,37 @@ class GemmaPromptBuilder:
         directive = request.directive
         if self.prompt_spec is None:
             return self._build_legacy(request)
+        if self.prompt_spec.schema_version == 2:
+            assert self._template_bytes is not None
+            template = self._template_bytes.decode("utf-8")
+            payload = self.state_payload(
+                request.context,
+                directive={
+                    "behavior_key": directive.behavior_key,
+                    "command": directive.command,
+                    "instruction": directive.description,
+                },
+            )
+            rendered = template
+            replacements = {
+                "{{SELECTED_DIRECTIVE_BEHAVIOR_KEY}}": directive.behavior_key,
+                "{{SELECTED_DIRECTIVE_COMMAND}}": directive.command,
+                "{{SELECTED_DIRECTIVE_INSTRUCTION}}": directive.description,
+                "{{LIVE_STATE_JSON}}": canonical_json_text(payload),
+                "{{AGENT_COUNT}}": str(len(payload["agents"])),
+            }
+            for marker, value in replacements.items():
+                rendered = rendered.replace(marker, value)
+            if any(marker in rendered for marker in _TEMPLATE_MARKERS):
+                raise ValueError("prompt template rendering left an unresolved marker")
+            return PromptEnvelope(
+                messages=(
+                    ChatMessage(role="system", content=_SYSTEM_MESSAGE),
+                    ChatMessage(role="user", content=rendered),
+                ),
+                response_schema=self.response_schema(request.context),
+            )
+
         prompt_directive = self.prompt_spec.by_behavior_key(directive.behavior_key)
         messages: list[ChatMessage] = [
             ChatMessage(role="system", content=self.prompt_spec.system_message)

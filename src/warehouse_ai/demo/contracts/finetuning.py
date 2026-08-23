@@ -1,4 +1,4 @@
-"""Versioned contracts for frozen-Gemma directive-PPO fine-tuning."""
+"""Versioned contracts for frozen-Llm directive-PPO fine-tuning."""
 
 from __future__ import annotations
 
@@ -27,10 +27,10 @@ from warehouse_ai.demo.contracts.inference import LlamaCppBackendConfig
 from warehouse_ai.demo.contracts.evaluation import EpisodeResult
 
 
-class GemmaFineTuneConfig(DemoModel):
+class LlmFineTuneConfig(DemoModel):
     """One immutable warm-started PPO fine-tuning configuration."""
 
-    schema_version: Literal[1, 2] = 1
+    schema_version: Literal[1, 2, 3] = 3
     environment_id: NonBlankStr
     vocabulary_path: RepositoryPath
     parent_checkpoint_path: RepositoryPath
@@ -45,6 +45,7 @@ class GemmaFineTuneConfig(DemoModel):
     algorithm_seed: int = 8300
     episode_steps: PositiveInt = 500
     total_timesteps: PositiveInt = 1_024
+    accelerator: Literal["auto", "cpu", "cuda"] = "auto"
     learning_rate: PositiveFloat = 3e-5
     n_steps: PositiveInt = 256
     batch_size: PositiveInt = 64
@@ -94,6 +95,8 @@ class GemmaFineTuneConfig(DemoModel):
             raise ValueError("total_timesteps must be a multiple of n_steps")
         if not 0.0 < self.gamma <= 1.0 or not 0.0 <= self.gae_lambda <= 1.0:
             raise ValueError("gamma and gae_lambda must be in their valid ranges")
+        if self.schema_version >= 3 and self.accelerator != "cuda":
+            raise ValueError("schema-v3 fine-tuning configs require accelerator: cuda")
         return self
 
 
@@ -102,7 +105,7 @@ class FineTuneTrainingSummary(DemoModel):
     optimizer_steps: PositiveInt
     simulator_return: float
     learning_return: float
-    gemma_calls: NonNegativeInt
+    llm_calls: NonNegativeInt
     fallbacks: NonNegativeInt
     effect_violations: NonNegativeInt
     failure_counts: dict[str, NonNegativeInt]
@@ -112,10 +115,10 @@ class FineTuneTrainingSummary(DemoModel):
     latency_p95_ms: NonNegativeFloat | None = None
 
 
-class GemmaFineTuneManifest(DemoModel):
+class LlmFineTuneManifest(DemoModel):
     """Small provenance record for a fine-tuned PPO checkpoint."""
 
-    schema_version: Literal[1, 2] = 1
+    schema_version: Literal[1, 2, 3] = 3
     environment_id: NonBlankStr
     vocabulary_sha256: Sha256
     behavior_sha256: Sha256
@@ -129,6 +132,9 @@ class GemmaFineTuneManifest(DemoModel):
     prompt_contract_sha256: Sha256
     preflight_report_sha256: Sha256
     model_file_sha256: Sha256
+    accelerator: Literal["cpu", "cuda"] | None = None
+    selected_device: NonBlankStr | None = None
+    hardware: dict[str, Any] = Field(default_factory=dict)
     train_seeds: tuple[int, ...]
     selection_seeds: tuple[int, ...]
     confirmation_seeds: tuple[int, ...]
@@ -153,6 +159,18 @@ class GemmaFineTuneManifest(DemoModel):
     def validate_seeds(cls, value: Sequence[int], info: Any) -> tuple[int, ...]:
         return validate_seed_partition(value, info.field_name)
 
+    @model_validator(mode="after")
+    def validate_hardware_provenance(self) -> Self:
+        if self.schema_version >= 3 and (
+            self.accelerator != "cuda"
+            or self.selected_device is None
+            or not self.hardware
+        ):
+            raise ValueError(
+                "schema-v3 fine-tuning manifests require CUDA device provenance"
+            )
+        return self
+
 
 class FineTuneStepRecord(DemoModel):
     """Append-only audit record for one expensive environment transition."""
@@ -167,13 +185,13 @@ class FineTuneStepRecord(DemoModel):
     destinations: tuple[NonNegativeInt, ...] = Field(min_length=1)
     simulator_reward: float
     learning_reward: float
-    source: Literal["gemma", "directive_executor", "automatic_no_op"]
+    source: Literal["llm", "directive_executor", "automatic_no_op"]
     failure_code: str | None = None
     llm_latency_ms: NonNegativeFloat | None = None
 
 
 class FineTuneEvaluationConfig(DemoModel):
-    schema_version: Literal[1, 2] = 1
+    schema_version: Literal[1, 2, 3] = 3
     fine_tune_config_path: RepositoryPath
     fine_tune_checkpoint_path: RepositoryPath
     fine_tune_manifest_path: RepositoryPath
@@ -193,19 +211,19 @@ class FineTuneEvaluationConfig(DemoModel):
 class FineTunePolicyEvaluation(DemoModel):
     policy: Literal["parent", "fine_tuned"]
     executor_episodes: tuple[EpisodeResult, ...] = Field(min_length=1)
-    gemma_episodes: tuple[EpisodeResult, ...] = Field(min_length=1)
+    llm_episodes: tuple[EpisodeResult, ...] = Field(min_length=1)
 
     @model_validator(mode="after")
     def validate_pairs(self) -> Self:
         executor_seeds = tuple(item.seed for item in self.executor_episodes)
-        gemma_seeds = tuple(item.seed for item in self.gemma_episodes)
-        if executor_seeds != gemma_seeds:
-            raise ValueError("executor and Gemma episode seeds must match")
+        llm_seeds = tuple(item.seed for item in self.llm_episodes)
+        if executor_seeds != llm_seeds:
+            raise ValueError("executor and Llm episode seeds must match")
         return self
 
 
 class FineTuneComparisonSummary(DemoModel):
-    schema_version: Literal[1, 2] = 1
+    schema_version: Literal[1, 2, 3] = 3
     environment_id: NonBlankStr
     partition: Literal["selection", "confirmation", "final"]
     seeds: tuple[int, ...]
@@ -226,7 +244,7 @@ class FineTuneComparisonSummary(DemoModel):
     @model_validator(mode="after")
     def validate_episode_seeds(self) -> Self:
         for evaluation in (self.parent, self.fine_tuned):
-            actual = tuple(item.seed for item in evaluation.gemma_episodes)
+            actual = tuple(item.seed for item in evaluation.llm_episodes)
             if actual != self.seeds:
                 raise ValueError("comparison episode seeds must match summary seeds")
         return self

@@ -32,9 +32,14 @@ def hardware_provenance() -> dict[str, Any]:
         import torch
 
         facts["torch"] = torch.__version__
+        facts["torch_build"] = torch.__version__
+        facts["torch_cuda_version"] = torch.version.cuda
         facts["cuda_available"] = bool(torch.cuda.is_available())
         if torch.cuda.is_available():
             facts["cuda_device"] = torch.cuda.get_device_name(0)
+            facts["selected_device"] = str(torch.device("cuda:0"))
+        else:
+            facts["selected_device"] = "cpu"
     except (ImportError, RuntimeError) as exc:
         facts["torch"] = f"unavailable: {type(exc).__name__}"
     executable = shutil.which("nvidia-smi")

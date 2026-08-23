@@ -21,14 +21,14 @@ def _cli_module() -> ModuleType:
     return module
 
 
-def test_start_gemma_subcommand_parses_launcher_options(monkeypatch: Any) -> None:
+def test_start_llm_subcommand_parses_launcher_options(monkeypatch: Any) -> None:
     module = _cli_module()
     monkeypatch.setattr(
         sys,
         "argv",
         [
             "run_directive_demo.py",
-            "start-gemma",
+            "start-llm",
             "--prepare",
             "--port",
             "9090",
@@ -41,14 +41,14 @@ def test_start_gemma_subcommand_parses_launcher_options(monkeypatch: Any) -> Non
 
     args = module.parse_args()
 
-    assert args.command == "start-gemma"
+    assert args.command == "start-llm"
     assert args.prepare is True
     assert args.port == 9090
     assert args.context_size == 2048
     assert args.gpu_layers == 12
 
 
-def test_start_gemma_delegates_to_powershell_launcher(monkeypatch: Any) -> None:
+def test_start_llm_delegates_to_powershell_launcher(monkeypatch: Any) -> None:
     module = _cli_module()
     calls: list[tuple[list[str], Path, bool]] = []
 
@@ -62,7 +62,7 @@ def test_start_gemma_delegates_to_powershell_launcher(monkeypatch: Any) -> None:
 
     monkeypatch.setattr(module.subprocess, "run", fake_run)
     monkeypatch.setattr(
-        sys, "argv", ["run_directive_demo.py", "start-gemma", "--prepare"]
+        sys, "argv", ["run_directive_demo.py", "start-llm", "--prepare"]
     )
 
     assert module.main() == 0
@@ -77,13 +77,13 @@ def test_start_gemma_delegates_to_powershell_launcher(monkeypatch: Any) -> None:
         "Bypass",
         "-File",
     ]
-    assert command[5] == str(ROOT / "scripts/start_local_gemma.ps1")
+    assert command[5] == str(ROOT / "scripts/start_local_llm.ps1")
     assert command[-7:] == [
         "-Port",
         "8080",
         "-ContextSize",
-        "4096",
+        "8192",
         "-GpuLayers",
-        "24",
+        "99",
         "-Prepare",
     ]

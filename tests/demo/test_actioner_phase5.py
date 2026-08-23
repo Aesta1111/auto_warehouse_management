@@ -18,23 +18,23 @@ from warehouse_ai.demo.contracts.directives import (
 from warehouse_ai.demo.contracts.inference import (
     ActionerRequest,
     FailureCode,
-    GemmaPreflightReport,
+    LlmPreflightReport,
     GenerationResult,
     LlamaCppBackendConfig,
     ModelHealth,
     PromptEnvelope,
 )
 from warehouse_ai.demo.evaluation.verification import verify_prompt_contract
-from warehouse_ai.demo.inference.actioner import ActionerError, GemmaActioner
+from warehouse_ai.demo.inference.actioner import ActionerError, LlmActioner
 from warehouse_ai.demo.inference.backend import InferenceError, ModelBackend
 from warehouse_ai.demo.inference.llama_cpp import LlamaCppBackend
-from warehouse_ai.demo.inference.prompting import GemmaPromptBuilder
+from warehouse_ai.demo.inference.prompting import LlmPromptBuilder
 from warehouse_ai.env import TarwareEnvWrapper
 
 
 ROOT = Path(__file__).parents[2]
 ENVIRONMENT_ID = "tarware-tiny-3agvs-2pickers-partialobs-v1"
-MODEL_ID = "google/gemma-4-E4B-it"
+MODEL_ID = "google/llm-4-E4B-it"
 
 
 def _config() -> LlamaCppBackendConfig:
@@ -73,7 +73,7 @@ class FakeBackend:
         self.prompt: PromptEnvelope | None = None
 
     def health(self) -> ModelHealth:
-        raise AssertionError("health is not used by GemmaActioner")
+        raise AssertionError("health is not used by LlmActioner")
 
     def generate(self, prompt: PromptEnvelope) -> GenerationResult:
         self.prompt = prompt
@@ -93,7 +93,7 @@ def test_actioner_is_backend_neutral_and_only_parses_messages() -> None:
     wrapper, request = _request()
     backend = FakeBackend('{"destinations":[1,0,0,0,0],"reason":"ok"}')
     try:
-        result = GemmaActioner(cast(ModelBackend, backend), GemmaPromptBuilder()).act(
+        result = LlmActioner(cast(ModelBackend, backend), LlmPromptBuilder()).act(
             request
         )
         assert result.response.destinations == (1, 0, 0, 0, 0)
@@ -116,8 +116,8 @@ def test_actioner_rejects_malformed_response_once(content: str) -> None:
     wrapper, request = _request()
     try:
         with pytest.raises(ActionerError) as error:
-            GemmaActioner(
-                cast(ModelBackend, FakeBackend(content)), GemmaPromptBuilder()
+            LlmActioner(
+                cast(ModelBackend, FakeBackend(content)), LlmPromptBuilder()
             ).act(request)
         assert error.value.code is FailureCode.MALFORMED_RESPONSE
     finally:
@@ -150,7 +150,7 @@ def test_llama_cpp_adapter_parses_health_and_openai_envelope() -> None:
     backend = LlamaCppBackend(_config(), client)
     wrapper, request = _request()
     try:
-        prompt = GemmaPromptBuilder().build(request)
+        prompt = LlmPromptBuilder().build(request)
         result = backend.generate(prompt)
         assert result.raw_text == '{"destinations":[0]}'
         assert result.prompt_tokens == 7
@@ -192,7 +192,7 @@ def test_preflight_report_records_independent_gates() -> None:
         healthy=True,
         checked_at_utc=now,
     )
-    report = GemmaPreflightReport(
+    report = LlmPreflightReport(
         schema_version=2,
         selected_model="e4b",
         model_id=MODEL_ID,
@@ -221,18 +221,18 @@ def test_preflight_report_records_independent_gates() -> None:
     )
     assert report.passed
     with pytest.raises(ValidationError, match="cannot exceed"):
-        GemmaPreflightReport.model_validate(
+        LlmPreflightReport.model_validate(
             {**report.model_dump(), "valid_responses": 6}
         )
 
 
 def test_preflight_fails_closed_on_prompt_contract_mismatch() -> None:
     config = load_ppo_evaluation_run(
-        Path("configs/demo/ppo-gemma-evaluation-run.yaml"), ROOT
+        Path("configs/demo/ppo-llm-evaluation-run.yaml"), ROOT
     ).demo_runtime()
     catalog = DirectiveCatalog.load(ROOT / config.vocabulary_path)
     assert config.prompt_spec_path is not None
-    builder = GemmaPromptBuilder.load(ROOT / config.prompt_spec_path, catalog)
+    builder = LlmPromptBuilder.load(ROOT / config.prompt_spec_path, catalog)
     now = datetime.now(timezone.utc)
     health = ModelHealth(
         base_url=cast(Any, "http://testserver"),
@@ -242,16 +242,17 @@ def test_preflight_fails_closed_on_prompt_contract_mismatch() -> None:
         healthy=True,
         checked_at_utc=now,
     )
-    report = GemmaPreflightReport(
-        schema_version=4,
-        selected_model="e4b",
+    report = LlmPreflightReport(
+        schema_version=5,
+        selected_model="qwen3.5-2b-q8",
         model_id=MODEL_ID,
         model_file_sha256="0" * 64,
         base_url=cast(Any, "http://testserver"),
-        context_size=4096,
-        gpu_layers=24,
+        context_size=8192,
+        gpu_layers=99,
         prompt_schema_sha256="1" * 64,
         prompt_contract_sha256="f" * 64,
+        prompt_template_sha256="0" * 64,
         health=health,
         warmup_completed=True,
         measured_requests=5,
@@ -274,6 +275,9 @@ def test_preflight_fails_closed_on_prompt_contract_mismatch() -> None:
         verify_prompt_contract(config, report, builder)
 
     matching = report.model_copy(
-        update={"prompt_contract_sha256": builder.contract_digest}
+        update={
+            "prompt_contract_sha256": builder.contract_digest,
+            "prompt_template_sha256": builder.template_digest,
+        }
     )
     verify_prompt_contract(config, matching, builder)
