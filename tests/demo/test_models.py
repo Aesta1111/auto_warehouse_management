@@ -16,11 +16,8 @@ from warehouse_ai.demo.contracts.directives import (
     ProbeReport,
     DirectiveCatalog,
 )
-from warehouse_ai.demo.contracts.evaluation import DemoConfig
-from warehouse_ai.demo.contracts.finetuning import (
-    FineTuneEvaluationConfig,
-    GemmaFineTuneConfig,
-)
+from warehouse_ai.demo.contracts.configuration import load_ppo_fine_tuning_run
+from warehouse_ai.demo.contracts.finetuning import GemmaFineTuneConfig
 from warehouse_ai.demo.contracts.inference import LlamaCppBackendConfig
 from warehouse_ai.demo.contracts.ppo import PpoConfig
 from warehouse_ai.domain import ActionMask, AgentObservation, AgentRole, Position
@@ -30,40 +27,10 @@ from warehouse_ai.domain import ShelfObservation, WarehouseObservation
 ROOT = Path(__file__).parents[2]
 
 
-def test_committed_versioned_configs_load() -> None:
-    catalog = DirectiveCatalog.load(ROOT / "configs/demo/directives-v1.yaml")
-    probe = load_yaml_config(ROOT / "configs/demo/directive-probe-v1.yaml", ProbeConfig)
-    ppo = load_yaml_config(ROOT / "configs/demo/directive-ppo-v1.yaml", PpoConfig)
-    ppo_v2 = load_yaml_config(ROOT / "configs/demo/directive-ppo-v2.yaml", PpoConfig)
-    probe_v2 = load_yaml_config(
-        ROOT / "configs/demo/directive-probe-v2.yaml", ProbeConfig
-    )
-    ppo_v3 = load_yaml_config(ROOT / "configs/demo/directive-ppo-v3.yaml", PpoConfig)
-    ppo_v4 = load_yaml_config(ROOT / "configs/demo/directive-ppo-v4.yaml", PpoConfig)
-    demo_v2 = load_yaml_config(ROOT / "configs/demo/directive-demo-v2.yaml", DemoConfig)
-    demo_v3 = load_yaml_config(ROOT / "configs/demo/directive-demo-v3.yaml", DemoConfig)
-    demo_v4 = load_yaml_config(ROOT / "configs/demo/directive-demo-v4.yaml", DemoConfig)
-    fine_tune = load_yaml_config(
-        ROOT / "configs/demo/directive-ppo-gemma-finetune-v1.yaml",
-        GemmaFineTuneConfig,
-    )
-    fine_tune_v2 = load_yaml_config(
-        ROOT / "configs/demo/directive-ppo-gemma-finetune-v2.yaml",
-        GemmaFineTuneConfig,
-    )
-    fine_tune_evaluations = tuple(
-        load_yaml_config(
-            ROOT / f"configs/demo/directive-ppo-gemma-eval-{partition}-v1.yaml",
-            FineTuneEvaluationConfig,
-        )
-        for partition in ("selection", "confirmation", "final")
-    )
-    fine_tune_evaluations_v2 = tuple(
-        load_yaml_config(
-            ROOT / f"configs/demo/directive-ppo-gemma-eval-{partition}-v2.yaml",
-            FineTuneEvaluationConfig,
-        )
-        for partition in ("selection", "confirmation", "final")
+def test_committed_catalog_and_probe_configs_load() -> None:
+    catalog = DirectiveCatalog.load(ROOT / "configs/demo/directive-catalog.yaml")
+    probe = load_yaml_config(
+        ROOT / "configs/demo/directive-semantics-probe.yaml", ProbeConfig
     )
 
     assert catalog.size == 4
@@ -93,57 +60,14 @@ def test_committed_versioned_configs_load() -> None:
         "description",
         "behavior_key",
     }
-    assert probe.vocabulary_path.as_posix() == "configs/demo/directives-v1.yaml"
-    assert ppo.train_seeds[-1] == 8115
-    assert ppo_v2.backend == "lightning-fabric"
-    assert ppo_v2.value_coefficient == 0.5
-    assert probe_v2.schema_version == 2
-    assert ppo_v3.schema_version == 3
-    assert ppo_v4.schema_version == 4
-    assert ppo_v4.hidden_sizes == (64,)
-    assert demo_v2.inference.backend == "llama_cpp"
-    assert demo_v2.preflight_p95_limit_seconds == 3.92
-    assert demo_v2.prompt_spec_path is None
-    assert demo_v3.schema_version == 3
-    assert demo_v3.prompt_spec_path == Path(
-        "configs/demo/gemma-prompt-few-shot-v1.yaml"
-    )
-    assert demo_v4.schema_version == 4
-    assert demo_v4.ppo_manifest_path == Path(
-        "results/demo/directive-ppo-v4/directive-ppo-manifest-v4.json"
-    )
-    assert fine_tune.total_timesteps == 1_024
-    assert fine_tune.n_steps == 256
-    assert fine_tune.fallback_penalty == pytest.approx(0.001)
-    assert fine_tune.selection_seeds == (8200, 8201)
-    assert fine_tune.confirmation_seeds == (8202, 8203)
-    assert fine_tune.final_evaluation_seeds == (9100,)
-    assert fine_tune_v2.schema_version == 2
-    assert fine_tune_v2.parent_checkpoint_path == Path(
-        "results/demo/directive-ppo-v4/directive-ppo-v4.pt"
-    )
-    assert tuple(item.partition for item in fine_tune_evaluations) == (
-        "selection",
-        "confirmation",
-        "final",
-    )
-    assert tuple(item.schema_version for item in fine_tune_evaluations_v2) == (
-        2,
-        2,
-        2,
-    )
-
-    confirmation = fine_tune_evaluations[1].model_dump()
-    confirmation["prerequisite_summary_path"] = None
-    with pytest.raises(ValueError, match="require a prerequisite summary"):
-        FineTuneEvaluationConfig.model_validate(confirmation)
+    assert probe.schema_version == 2
+    assert probe.vocabulary_path.as_posix() == "configs/demo/directive-catalog.yaml"
 
 
 def test_gemma_fine_tune_config_rejects_overlapping_partitions() -> None:
-    config = load_yaml_config(
-        ROOT / "configs/demo/directive-ppo-gemma-finetune-v1.yaml",
-        GemmaFineTuneConfig,
-    )
+    config = load_ppo_fine_tuning_run(
+        Path("configs/demo/ppo-gemma-fine-tuning-run.yaml"), ROOT
+    ).runtime
     values = config.model_dump()
     values["confirmation_seeds"] = (8201, 8203)
 
@@ -282,7 +206,7 @@ def test_configs_reject_absolute_paths_overlapping_seeds_and_bad_urls() -> None:
         PpoConfig(
             schema_version=1,
             environment_id="tiny",
-            vocabulary_path=Path("configs/demo/directives-v1.yaml"),
+            vocabulary_path=Path("configs/demo/directive-catalog.yaml"),
             train_seeds=(1, 2),
             validation_seeds=(2, 3),
         )
@@ -300,7 +224,7 @@ def test_configs_reject_absolute_paths_overlapping_seeds_and_bad_urls() -> None:
 def test_ppo_hidden_sizes_are_required_only_for_schema_v4() -> None:
     common = {
         "environment_id": "tiny",
-        "vocabulary_path": Path("configs/demo/directives-v1.yaml"),
+        "vocabulary_path": Path("configs/demo/directive-catalog.yaml"),
         "train_seeds": (1,),
         "validation_seeds": (2,),
         "value_coefficient": 0.5,

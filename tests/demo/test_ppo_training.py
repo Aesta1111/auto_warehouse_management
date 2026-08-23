@@ -34,12 +34,12 @@ def test_short_fabric_collect_update_checkpoint_and_reload(
     tmp_path: Path,
     monkeypatch: object,
 ) -> None:
-    catalog = DirectiveCatalog.load(ROOT / "configs/demo/directives-v1.yaml")
+    catalog = DirectiveCatalog.load(ROOT / "configs/demo/directive-catalog.yaml")
     registry = build_registry(catalog)
     config = PpoConfig(
         schema_version=4,
         environment_id=ENVIRONMENT_ID,
-        vocabulary_path=Path("configs/demo/directives-v1.yaml"),
+        vocabulary_path=Path("configs/demo/directive-catalog.yaml"),
         train_seeds=(8100,),
         validation_seeds=(8200,),
         algorithm_seed=8100,
@@ -110,7 +110,7 @@ def test_short_fabric_collect_update_checkpoint_and_reload(
 
 
 def test_schema_v3_state_keys_migrate_to_equivalent_mlp(tmp_path: Path) -> None:
-    catalog = DirectiveCatalog.load(ROOT / "configs/demo/directives-v1.yaml")
+    catalog = DirectiveCatalog.load(ROOT / "configs/demo/directive-catalog.yaml")
     registry = build_registry(catalog)
     torch.manual_seed(19)
     source = PpoModel(

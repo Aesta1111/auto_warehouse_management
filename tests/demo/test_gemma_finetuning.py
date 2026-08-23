@@ -93,7 +93,7 @@ def _parent(catalog: DirectiveCatalog, observation_size: int) -> PpoPolicy:
 
 
 def test_warm_start_preserves_every_parent_parameter() -> None:
-    catalog = DirectiveCatalog.load(ROOT / "configs/demo/directives-v1.yaml")
+    catalog = DirectiveCatalog.load(ROOT / "configs/demo/directive-catalog.yaml")
     parent = _parent(catalog, 8)
     model = warm_start_model(_config(), catalog, parent)
 
@@ -109,7 +109,7 @@ def test_warm_start_preserves_every_parent_parameter() -> None:
 
 def test_two_step_fake_fine_tune_saves_reloadable_child_checkpoint() -> None:
     config = _config()
-    catalog = DirectiveCatalog.load(ROOT / "configs/demo/directives-v1.yaml")
+    catalog = DirectiveCatalog.load(ROOT / "configs/demo/directive-catalog.yaml")
     registry = build_registry(catalog)
     actioner = ValidActioner(registry)
     environment = GemmaGymEnv(

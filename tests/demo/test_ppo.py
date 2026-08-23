@@ -24,7 +24,7 @@ ENVIRONMENT_ID = "tarware-tiny-3agvs-2pickers-partialobs-v1"
 def test_policy_masks_probabilities_and_save_reload_is_deterministic(
     tmp_path: Path,
 ) -> None:
-    catalog = DirectiveCatalog.load(ROOT / "configs/demo/directives-v1.yaml")
+    catalog = DirectiveCatalog.load(ROOT / "configs/demo/directive-catalog.yaml")
     registry = build_registry(catalog)
     environment = GymEnv(
         ENVIRONMENT_ID,
@@ -92,7 +92,7 @@ def test_policy_masks_probabilities_and_save_reload_is_deterministic(
 def test_policy_load_rejects_behavior_or_checkpoint_digest_mismatch(
     tmp_path: Path,
 ) -> None:
-    catalog = DirectiveCatalog.load(ROOT / "configs/demo/directives-v1.yaml")
+    catalog = DirectiveCatalog.load(ROOT / "configs/demo/directive-catalog.yaml")
     registry = build_registry(catalog)
     environment = GymEnv(
         ENVIRONMENT_ID,

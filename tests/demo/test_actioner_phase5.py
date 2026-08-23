@@ -9,7 +9,7 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
-from warehouse_ai.demo.contracts.base import load_yaml_config
+from warehouse_ai.demo.contracts.configuration import load_ppo_evaluation_run
 from warehouse_ai.demo.contracts.directives import (
     WarehouseContext,
     PpoPolicyOutput,
@@ -24,7 +24,6 @@ from warehouse_ai.demo.contracts.inference import (
     ModelHealth,
     PromptEnvelope,
 )
-from warehouse_ai.demo.contracts.evaluation import DemoConfig
 from warehouse_ai.demo.evaluation.verification import verify_prompt_contract
 from warehouse_ai.demo.inference.actioner import ActionerError, GemmaActioner
 from warehouse_ai.demo.inference.backend import InferenceError, ModelBackend
@@ -50,7 +49,7 @@ def _config() -> LlamaCppBackendConfig:
 
 
 def _request() -> tuple[TarwareEnvWrapper, ActionerRequest]:
-    catalog = DirectiveCatalog.load(ROOT / "configs/demo/directives-v1.yaml")
+    catalog = DirectiveCatalog.load(ROOT / "configs/demo/directive-catalog.yaml")
     wrapper = TarwareEnvWrapper(ENVIRONMENT_ID)
     wrapper.reset(seed=0)
     context = WarehouseContext.capture(wrapper)
@@ -227,8 +226,10 @@ def test_preflight_report_records_independent_gates() -> None:
         )
 
 
-def test_schema_v3_preflight_fails_closed_on_prompt_contract_mismatch() -> None:
-    config = load_yaml_config(ROOT / "configs/demo/directive-demo-v3.yaml", DemoConfig)
+def test_preflight_fails_closed_on_prompt_contract_mismatch() -> None:
+    config = load_ppo_evaluation_run(
+        Path("configs/demo/ppo-gemma-evaluation-run.yaml"), ROOT
+    ).demo_runtime()
     catalog = DirectiveCatalog.load(ROOT / config.vocabulary_path)
     assert config.prompt_spec_path is not None
     builder = GemmaPromptBuilder.load(ROOT / config.prompt_spec_path, catalog)
@@ -242,7 +243,7 @@ def test_schema_v3_preflight_fails_closed_on_prompt_contract_mismatch() -> None:
         checked_at_utc=now,
     )
     report = GemmaPreflightReport(
-        schema_version=3,
+        schema_version=4,
         selected_model="e4b",
         model_id=MODEL_ID,
         model_file_sha256="0" * 64,

@@ -1,5 +1,5 @@
 schema_version: 2
 environment_id: tarware-tiny-3agvs-2pickers-partialobs-v1
-vocabulary_path: configs/demo/directives-v1.yaml
+vocabulary_path: configs/demo/directive-catalog.yaml
 probe_seeds: [8000, 8001, 8002, 8003, 8004]
 episode_steps: 500

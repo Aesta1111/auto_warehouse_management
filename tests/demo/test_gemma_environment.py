@@ -55,7 +55,7 @@ class FailingActioner:
 def _environment(
     actioner: Actioner,
 ) -> tuple[GemmaGymEnv, DirectiveCatalog, Registry]:
-    catalog = DirectiveCatalog.load(ROOT / "configs/demo/directives-v1.yaml")
+    catalog = DirectiveCatalog.load(ROOT / "configs/demo/directive-catalog.yaml")
     registry = build_registry(catalog)
     environment = GemmaGymEnv(
         ENVIRONMENT_ID,

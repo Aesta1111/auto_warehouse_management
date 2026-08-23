@@ -28,7 +28,7 @@ ENVIRONMENT_ID = "tarware-tiny-3agvs-2pickers-partialobs-v1"
 
 @pytest.fixture
 def catalog() -> DirectiveCatalog:
-    return DirectiveCatalog.load(ROOT / "configs/demo/directives-v1.yaml")
+    return DirectiveCatalog.load(ROOT / "configs/demo/directive-catalog.yaml")
 
 
 @pytest.fixture
@@ -44,7 +44,7 @@ def wrapped_env():
 @pytest.fixture
 def prompt_spec() -> GemmaPromptSpec:
     return load_yaml_config(
-        ROOT / "configs/demo/gemma-prompt-few-shot-v1.yaml", GemmaPromptSpec
+        ROOT / "configs/demo/gemma-actioner-few-shot-prompt.yaml", GemmaPromptSpec
     )
 
 

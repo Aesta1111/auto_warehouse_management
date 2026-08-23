@@ -1,8 +1,8 @@
 schema_version: 1
 actioner_id: gemma-e4b-few-shot-actioner
 selected_model: e4b
-vocabulary_path: configs/demo/directives-v1.yaml
-prompt_spec_path: configs/demo/gemma-prompt-few-shot-v1.yaml
+vocabulary_path: configs/demo/directive-catalog.yaml
+prompt_spec_path: configs/demo/gemma-actioner-few-shot-prompt.yaml
 preflight_p95_limit_seconds: 3.92
 inference:
   backend: llama_cpp

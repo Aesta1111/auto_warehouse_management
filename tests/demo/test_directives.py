@@ -29,7 +29,7 @@ ENVIRONMENT_ID = "tarware-tiny-3agvs-2pickers-partialobs-v1"
 
 @pytest.fixture
 def catalog() -> DirectiveCatalog:
-    return DirectiveCatalog.load(ROOT / "configs/demo/directives-v1.yaml")
+    return DirectiveCatalog.load(ROOT / "configs/demo/directive-catalog.yaml")
 
 
 @pytest.fixture

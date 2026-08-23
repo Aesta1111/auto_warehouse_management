@@ -58,7 +58,7 @@ class FailingActioner:
 
 
 def _catalog() -> DirectiveCatalog:
-    return DirectiveCatalog.load(ROOT / "configs/demo/directives-v1.yaml")
+    return DirectiveCatalog.load(ROOT / "configs/demo/directive-catalog.yaml")
 
 
 def _policy(catalog: DirectiveCatalog, selected: int) -> PpoPolicy:

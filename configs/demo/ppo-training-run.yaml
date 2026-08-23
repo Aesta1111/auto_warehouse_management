@@ -2,7 +2,7 @@ schema_version: 1
 run_id: directive-ppo-training
 model_config_path: configs/demo/ppo-model.yaml
 environment_id: tarware-tiny-3agvs-2pickers-partialobs-v1
-vocabulary_path: configs/demo/directives-v1.yaml
+vocabulary_path: configs/demo/directive-catalog.yaml
 output_directory: results/demo/ppo-training
 train_seeds: [8100, 8101, 8102, 8103, 8104, 8105, 8106, 8107, 8108, 8109, 8110, 8111, 8112, 8113, 8114, 8115]
 validation_seeds: [8200, 8201, 8202, 8203]
