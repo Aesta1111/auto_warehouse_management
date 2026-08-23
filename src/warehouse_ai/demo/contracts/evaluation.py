@@ -19,13 +19,13 @@ from warehouse_ai.demo.contracts.base import (
     RepositoryPath,
     Sha256,
 )
-from warehouse_ai.demo.contracts.directives import DirectivePrediction
+from warehouse_ai.demo.contracts.directives import PpoPolicyOutput
 from warehouse_ai.demo.contracts.inference import FailureCode, LlamaCppBackendConfig
 from warehouse_ai.domain import JointAction
 
 
 class DemoDecision(DemoModel):
-    prediction: DirectivePrediction
+    prediction: PpoPolicyOutput
     action: JointAction
     reason: str
     source: Literal["gemma", "directive_executor", "automatic_no_op"]
@@ -94,7 +94,7 @@ class DemoRunSummary(DemoModel):
         return self
 
 
-class DirectiveDemoConfig(DemoModel):
+class DemoConfig(DemoModel):
     schema_version: Literal[2]
     environment_id: NonBlankStr
     episode_seed: int = 9100

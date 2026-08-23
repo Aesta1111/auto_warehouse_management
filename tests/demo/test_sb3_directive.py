@@ -7,13 +7,13 @@ import numpy as np
 import pytest
 from stable_baselines3.common.env_checker import check_env
 
-from warehouse_ai.demo.contracts.directives import DirectiveVocabulary
+from warehouse_ai.demo.contracts.directives import DirectiveCatalog
 from warehouse_ai.demo.directives import (
-    DirectiveError,
-    DirectiveFailure,
-    build_directive_registry,
+    SemanticsError,
+    SemanticsFailure,
+    build_registry,
 )
-from warehouse_ai.demo.ppo.environment import DirectiveGymEnv
+from warehouse_ai.demo.ppo.environment import GymEnv
 from warehouse_ai.env import MaskAwareDiscrete
 
 
@@ -22,16 +22,16 @@ ENVIRONMENT_ID = "tarware-tiny-3agvs-2pickers-partialobs-v1"
 
 
 @pytest.fixture
-def vocabulary() -> DirectiveVocabulary:
-    return DirectiveVocabulary.load(ROOT / "configs/demo/directives-v1.yaml")
+def catalog() -> DirectiveCatalog:
+    return DirectiveCatalog.load(ROOT / "configs/demo/directives-v1.yaml")
 
 
 @pytest.fixture
-def directive_env(vocabulary: DirectiveVocabulary) -> Iterator[DirectiveGymEnv]:
-    environment = DirectiveGymEnv(
+def directive_env(catalog: DirectiveCatalog) -> Iterator[GymEnv]:
+    environment = GymEnv(
         ENVIRONMENT_ID,
-        vocabulary,
-        build_directive_registry(vocabulary),
+        catalog,
+        build_registry(catalog),
         (8100, 8101),
         episode_steps=16,
     )
@@ -55,7 +55,7 @@ def test_mask_aware_discrete_samples_only_valid_ids() -> None:
 
 
 def test_directive_facade_passes_checker_and_exposes_scalar_mask(
-    directive_env: DirectiveGymEnv,
+    directive_env: GymEnv,
 ) -> None:
     observation, info = directive_env.reset(seed=8100)
 
@@ -67,11 +67,11 @@ def test_directive_facade_passes_checker_and_exposes_scalar_mask(
 
 
 def test_directive_facade_rejects_inapplicable_and_batched_actions(
-    directive_env: DirectiveGymEnv,
+    directive_env: GymEnv,
 ) -> None:
     directive_env.reset(seed=8100)
-    with pytest.raises(DirectiveError) as error:
+    with pytest.raises(SemanticsError) as error:
         directive_env.step(2)
-    assert error.value.code is DirectiveFailure.INAPPLICABLE
+    assert error.value.code is SemanticsFailure.INAPPLICABLE
     with pytest.raises(TypeError, match="scalar"):
         directive_env.step(np.asarray([0], dtype=np.int64))

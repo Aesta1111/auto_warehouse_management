@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import torch
 
-from warehouse_ai.demo.ppo.model import DirectivePpoModule
+from warehouse_ai.demo.ppo.model import PpoModel
 
 
-def _module() -> DirectivePpoModule:
-    return DirectivePpoModule(
+def _module() -> PpoModel:
+    return PpoModel(
         observation_size=3,
         directive_count=4,
         hidden_size=64,

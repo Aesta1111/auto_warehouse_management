@@ -7,11 +7,11 @@ import json
 from pathlib import Path
 
 from warehouse_ai.demo.artifacts import write_json_atomic
-from warehouse_ai.demo.directives import build_directive_registry
+from warehouse_ai.demo.directives import build_registry
 from warehouse_ai.demo.contracts.base import load_yaml_config
-from warehouse_ai.demo.contracts.directives import DirectiveVocabulary
+from warehouse_ai.demo.contracts.directives import DirectiveCatalog
 from warehouse_ai.demo.contracts.ppo import (
-    DirectivePpoConfig,
+    PpoConfig,
 )
 from warehouse_ai.demo.ppo.service import train_directive_ppo
 
@@ -39,16 +39,14 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     root = _repository_root()
-    config = load_yaml_config(_repository_path(root, args.config), DirectivePpoConfig)
-    vocabulary = DirectiveVocabulary.load(
-        _repository_path(root, config.vocabulary_path)
-    )
-    registry = build_directive_registry(vocabulary)
+    config = load_yaml_config(_repository_path(root, args.config), PpoConfig)
+    catalog = DirectiveCatalog.load(_repository_path(root, config.vocabulary_path))
+    registry = build_registry(catalog)
     default_output = Path(f"results/demo/directive-ppo-v{config.schema_version}")
     output_directory = _repository_path(root, args.output or default_output)
     manifest = train_directive_ppo(
         config,
-        vocabulary,
+        catalog,
         registry,
         output_directory,
     )

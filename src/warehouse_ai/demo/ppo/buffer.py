@@ -39,7 +39,7 @@ class PpoBatch:
         )
 
 
-class DirectiveRolloutBuffer:
+class RolloutBuffer:
     """Preallocated storage with an explicit collecting/finalized lifecycle."""
 
     def __init__(

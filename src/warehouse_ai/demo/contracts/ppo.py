@@ -25,7 +25,7 @@ from warehouse_ai.demo.contracts.base import (
 )
 
 
-class DirectivePpoValidationSummary(DemoModel):
+class PpoValidationSummary(DemoModel):
     seeds: tuple[int, ...]
     mean_completed_tasks: NonNegativeFloat
     mean_return: float
@@ -42,7 +42,7 @@ class DirectivePpoValidationSummary(DemoModel):
         return validate_seed_partition(value, "seeds")
 
 
-class DirectivePpoManifest(DemoModel):
+class PpoManifest(DemoModel):
     schema_version: Literal[1, 2, 3]
     environment_id: NonBlankStr
     vocabulary_sha256: Sha256
@@ -53,7 +53,7 @@ class DirectivePpoManifest(DemoModel):
     validation_seeds: tuple[int, ...]
     algorithm_seed: int
     hyperparameters: dict[str, JsonValue]
-    validation: DirectivePpoValidationSummary
+    validation: PpoValidationSummary
     package_versions: dict[str, str]
     backend: Literal["sb3-maskable-ppo", "lightning-fabric"] | None = None
     model_implementation_version: NonBlankStr | None = None
@@ -95,7 +95,7 @@ class DirectivePpoManifest(DemoModel):
         return self
 
 
-class DirectivePpoConfig(DemoModel):
+class PpoConfig(DemoModel):
     schema_version: Literal[1, 2, 3]
     environment_id: NonBlankStr
     vocabulary_path: RepositoryPath

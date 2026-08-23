@@ -10,9 +10,9 @@ import pytest
 from pydantic import ValidationError
 
 from warehouse_ai.demo.contracts.directives import (
-    DirectiveContext,
-    DirectivePrediction,
-    DirectiveVocabulary,
+    WarehouseContext,
+    PpoPolicyOutput,
+    DirectiveCatalog,
 )
 from warehouse_ai.demo.contracts.inference import (
     ActionerRequest,
@@ -47,16 +47,16 @@ def _config() -> LlamaCppBackendConfig:
 
 
 def _request() -> tuple[TarwareEnvWrapper, ActionerRequest]:
-    vocabulary = DirectiveVocabulary.load(ROOT / "configs/demo/directives-v1.yaml")
+    catalog = DirectiveCatalog.load(ROOT / "configs/demo/directives-v1.yaml")
     wrapper = TarwareEnvWrapper(ENVIRONMENT_ID)
     wrapper.reset(seed=0)
-    context = DirectiveContext.capture(wrapper)
+    context = WarehouseContext.capture(wrapper)
     return wrapper, ActionerRequest(
         context=context,
-        prediction=DirectivePrediction(
+        prediction=PpoPolicyOutput(
             state_id=context.state_id,
             episode_step=context.observation.step,
-            directive=vocabulary.by_id(1),
+            directive=catalog.by_id(1),
             probabilities=(0.0, 1.0, 0.0, 0.0),
             value_estimate=0.0,
             policy_latency_ms=0.0,

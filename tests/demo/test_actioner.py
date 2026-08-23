@@ -7,9 +7,9 @@ import numpy as np
 import pytest
 
 from warehouse_ai.demo.contracts.directives import (
-    DirectiveContext,
-    DirectivePrediction,
-    DirectiveVocabulary,
+    WarehouseContext,
+    PpoPolicyOutput,
+    DirectiveCatalog,
 )
 from warehouse_ai.demo.contracts.inference import (
     ActionerRequest,
@@ -18,13 +18,12 @@ from warehouse_ai.demo.contracts.inference import (
     GemmaActionResponse,
 )
 from warehouse_ai.demo.controllers import (
-    DirectiveExecutorController,
-    DirectiveGemmaController,
+    ExecutorController,
+    GemmaController,
 )
-from warehouse_ai.demo.directives import DirectiveRegistry, build_directive_registry
-from warehouse_ai.demo.directives.rules import RULES
+from warehouse_ai.demo.directives import Registry, build_registry
 from warehouse_ai.demo.inference.actioner import Actioner, ActionerError
-from warehouse_ai.demo.ppo.policy import DirectivePpoPolicy
+from warehouse_ai.demo.ppo.policy import PpoPolicy
 from warehouse_ai.env import TarwareEnvWrapper
 
 
@@ -33,30 +32,28 @@ ENVIRONMENT_ID = "tarware-tiny-3agvs-2pickers-partialobs-v1"
 
 
 @pytest.fixture
-def vocabulary() -> DirectiveVocabulary:
-    return DirectiveVocabulary.load(ROOT / "configs/demo/directives-v1.yaml")
+def catalog() -> DirectiveCatalog:
+    return DirectiveCatalog.load(ROOT / "configs/demo/directives-v1.yaml")
 
 
 @pytest.fixture
-def registry(vocabulary: DirectiveVocabulary) -> DirectiveRegistry:
-    return build_directive_registry(vocabulary)
+def registry(catalog: DirectiveCatalog) -> Registry:
+    return build_registry(catalog)
 
 
 class FakePolicy:
-    def __init__(self, vocabulary: DirectiveVocabulary, selected_id: int) -> None:
-        self.vocabulary = vocabulary
+    def __init__(self, catalog: DirectiveCatalog, selected_id: int) -> None:
+        self.catalog = catalog
         self.selected_id = selected_id
 
-    def predict(
-        self, context: DirectiveContext, mask: np.ndarray
-    ) -> DirectivePrediction:
+    def predict(self, context: WarehouseContext, mask: np.ndarray) -> PpoPolicyOutput:
         selected = self.selected_id if bool(mask[self.selected_id]) else 0
-        probabilities = [0.0] * self.vocabulary.size
+        probabilities = [0.0] * self.catalog.size
         probabilities[selected] = 1.0
-        return DirectivePrediction(
+        return PpoPolicyOutput(
             state_id=context.state_id,
             episode_step=context.observation.step,
-            directive=self.vocabulary.by_id(selected),
+            directive=self.catalog.by_id(selected),
             probabilities=tuple(probabilities),
             value_estimate=0.0,
             policy_latency_ms=0.0,
@@ -68,7 +65,7 @@ class FakeActioner:
     def __init__(
         self,
         wrapper: TarwareEnvWrapper,
-        registry: DirectiveRegistry,
+        registry: Registry,
         mode: str = "valid",
     ) -> None:
         self.wrapper = wrapper
@@ -113,7 +110,7 @@ class FakeActioner:
         )
 
 
-class BrokenRegistry(DirectiveRegistry):
+class BrokenRegistry(Registry):
     def execute(self, directive_id, context, wrapper):  # type: ignore[no-untyped-def,override]
         del directive_id, context, wrapper
         raise RuntimeError("injected executor failure")
@@ -125,21 +122,19 @@ def _wrapper() -> TarwareEnvWrapper:
     return wrapper
 
 
-def _policy(vocabulary: DirectiveVocabulary, selected: int) -> DirectivePpoPolicy:
-    return cast(DirectivePpoPolicy, FakePolicy(vocabulary, selected))
+def _policy(catalog: DirectiveCatalog, selected: int) -> PpoPolicy:
+    return cast(PpoPolicy, FakePolicy(catalog, selected))
 
 
 def test_valid_model_output_matches_executor_and_preserves_provenance(
-    vocabulary: DirectiveVocabulary, registry: DirectiveRegistry
+    catalog: DirectiveCatalog, registry: Registry
 ) -> None:
     executor_wrapper = _wrapper()
     gemma_wrapper = _wrapper()
     try:
-        policy = _policy(vocabulary, 1)
-        expected = DirectiveExecutorController(policy, registry).choose_action(
-            executor_wrapper
-        )
-        actual = DirectiveGemmaController(
+        policy = _policy(catalog, 1)
+        expected = ExecutorController(policy, registry).choose_action(executor_wrapper)
+        actual = GemmaController(
             policy,
             registry,
             cast(Actioner, FakeActioner(gemma_wrapper, registry)),
@@ -170,13 +165,13 @@ def test_valid_model_output_matches_executor_and_preserves_provenance(
 def test_every_structured_model_failure_uses_deterministic_fallback(
     mode: str,
     code: FailureCode,
-    vocabulary: DirectiveVocabulary,
-    registry: DirectiveRegistry,
+    catalog: DirectiveCatalog,
+    registry: Registry,
 ) -> None:
     wrapper = _wrapper()
     try:
-        controller = DirectiveGemmaController(
-            _policy(vocabulary, 1),
+        controller = GemmaController(
+            _policy(catalog, 1),
             registry,
             cast(Actioner, FakeActioner(wrapper, registry, mode)),
         )
@@ -185,19 +180,17 @@ def test_every_structured_model_failure_uses_deterministic_fallback(
         assert decision.failure_code is code
         assert decision.failure_detail
         assert not decision.directive_effect_valid
-        registry.validate_effect(1, DirectiveContext.capture(wrapper), decision.action)
+        registry.validate_effect(1, WarehouseContext.capture(wrapper), decision.action)
     finally:
         wrapper.close()
 
 
-def test_wait_bypasses_model(
-    vocabulary: DirectiveVocabulary, registry: DirectiveRegistry
-) -> None:
+def test_wait_bypasses_model(catalog: DirectiveCatalog, registry: Registry) -> None:
     wrapper = _wrapper()
     try:
         actioner = FakeActioner(wrapper, registry, "timeout")
-        decision = DirectiveGemmaController(
-            _policy(vocabulary, 0), registry, cast(Actioner, actioner)
+        decision = GemmaController(
+            _policy(catalog, 0), registry, cast(Actioner, actioner)
         ).choose_action(wrapper)
         assert not actioner.called
         assert decision.source == "directive_executor"
@@ -208,14 +201,14 @@ def test_wait_bypasses_model(
 
 
 def test_executor_failure_has_one_code_and_automatic_noop(
-    vocabulary: DirectiveVocabulary,
+    catalog: DirectiveCatalog,
 ) -> None:
     wrapper = _wrapper()
-    broken = BrokenRegistry(vocabulary, RULES)
+    broken = BrokenRegistry(catalog)
     try:
-        decision = DirectiveExecutorController(
-            _policy(vocabulary, 1), broken
-        ).choose_action(wrapper)
+        decision = ExecutorController(_policy(catalog, 1), broken).choose_action(
+            wrapper
+        )
         assert decision.source == "automatic_no_op"
         assert decision.failure_code is FailureCode.EXECUTOR_FAILURE
         assert decision.action == wrapper.no_op()

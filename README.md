@@ -87,7 +87,7 @@ The isolated prototype's Phase 2 registry and live-seed probe can be rerun with:
 uv run python scripts/probe_directives.py --config configs/demo/directive-probe-v1.yaml
 ```
 
-This checks the frozen four-directive vocabulary and deterministic executor
+This checks the frozen four-directive catalog and deterministic executor
 effects on the five committed probe seeds. Its result is a prototype artifact,
 not a scientific baseline or a main-project phase completion.
 
@@ -102,7 +102,7 @@ The command writes a small manifest and an ignored checkpoint under
 `results/demo/directive-ppo-v1/` or `results/demo/directive-ppo-v2/`. Version 1
 preserves the SB3 reference; version 2 uses the repository-owned model, buffer,
 GAE, loss, collector, and explicit Lightning Fabric loop required by Phase 3.5.
-Each manifest records vocabulary and behavior digests, seed partitions, package
+Each manifest records catalog and behavior digests, seed partitions, package
 versions, validation metrics, and the checkpoint SHA-256. Gemma/actioner phases
 are intentionally not included in either command.
 

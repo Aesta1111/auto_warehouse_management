@@ -3,7 +3,7 @@
 ## Objective
 
 Refactor the completed directive demo without changing the frozen four-command
-vocabulary, seed partitions, simulator boundary, or historical artifacts. The
+catalog, seed partitions, simulator boundary, or historical artifacts. The
 work also had to regenerate versioned compatibility evidence and finish the
 pending matched 500-step executor/Gemma demonstration.
 

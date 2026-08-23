@@ -22,7 +22,7 @@ represent a Gemma result.
 ## Method
 
 Added a test-only short-episode harness that captures and JSON-serializes every
-`DemoStepRecord`. It runs six scenarios through `DirectiveGemmaController`:
+`DemoStepRecord`. It runs six scenarios through `GemmaController`:
 
 1. valid fake action
 2. malformed response

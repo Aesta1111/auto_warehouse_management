@@ -1,11 +1,11 @@
-"""Directive vocabulary, state, prediction, and probe contracts."""
+"""Directive catalog, state, prediction, and probe contracts."""
 
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, Self
+from typing import Any, TYPE_CHECKING, Literal, Self
 
 from pydantic import (
     Field,
@@ -25,25 +25,77 @@ from warehouse_ai.demo.contracts.base import (
     load_yaml_mapping,
     validate_seed_partition,
 )
+from warehouse_ai.demo.directives.rules import (
+    AgentSelector,
+    DestinationSelector,
+    EffectCardinality,
+    _semantics_for_behavior_key,
+)
 from warehouse_ai.domain import ActionMask, WarehouseObservation
 
 if TYPE_CHECKING:
     from warehouse_ai.env import TarwareEnvWrapper
 
 
-class DirectiveDefinition(DemoModel):
+class Directive(DemoModel):
     directive_id: NonNegativeInt
     command: NonBlankStr
     description: NonBlankStr
     behavior_key: NonBlankStr
+    agents: AgentSelector = Field(exclude=True, repr=False)
+    destinations: DestinationSelector = Field(exclude=True, repr=False)
+    effect: EffectCardinality = Field(exclude=True, repr=False)
+
+    def descriptor(self) -> dict[str, Any]:
+        """Return the stable semantic descriptor used by behavior digests."""
+        return {
+            "behavior_key": self.behavior_key,
+            "agents": self.agents,
+            "destinations": self.destinations,
+            "effect": {
+                "minimum": self.effect.minimum,
+                "maximum": self.effect.maximum,
+            },
+        }
 
 
-class DirectiveVocabulary(DemoModel):
+class DirectiveCatalog(DemoModel):
     schema_version: Literal[1]
     vocabulary_id: NonBlankStr
     behavior_version: NonBlankStr
     wait_directive_id: NonNegativeInt
-    directives: tuple[DirectiveDefinition, ...] = Field(min_length=4, max_length=8)
+    directives: tuple[Directive, ...] = Field(min_length=4, max_length=8)
+
+    @model_validator(mode="before")
+    @classmethod
+    def attach_runtime_semantics(cls, value: Any) -> Any:
+        """Hydrate YAML/JSON directive metadata with executable semantics."""
+        if not isinstance(value, Mapping):
+            return value
+        data = dict(value)
+        raw_directives = data.get("directives")
+        if raw_directives is None:
+            return data
+        hydrated: list[Any] = []
+        for raw_directive in raw_directives:
+            if isinstance(raw_directive, Directive):
+                hydrated.append(raw_directive)
+                continue
+            if not isinstance(raw_directive, Mapping):
+                hydrated.append(raw_directive)
+                continue
+            metadata = dict(raw_directive)
+            behavior_key = metadata.get("behavior_key")
+            if not isinstance(behavior_key, str):
+                hydrated.append(raw_directive)
+                continue
+            agents, destinations, effect = _semantics_for_behavior_key(behavior_key)
+            metadata.update(
+                {"agents": agents, "destinations": destinations, "effect": effect}
+            )
+            hydrated.append(Directive.model_validate(metadata))
+        data["directives"] = tuple(hydrated)
+        return data
 
     @model_validator(mode="after")
     def validate_directives(self) -> Self:
@@ -67,7 +119,7 @@ class DirectiveVocabulary(DemoModel):
     def load(cls, path: Path) -> Self:
         return cls.model_validate(load_yaml_mapping(path))
 
-    def by_id(self, directive_id: int) -> DirectiveDefinition:
+    def by_id(self, directive_id: int) -> Directive:
         if directive_id < 0 or directive_id >= len(self.directives):
             raise KeyError(directive_id)
         definition = self.directives[directive_id]
@@ -83,7 +135,7 @@ class DirectiveVocabulary(DemoModel):
         return sha256_bytes(canonical_json_bytes(self))
 
 
-class DirectiveContext(DemoModel):
+class WarehouseContext(DemoModel):
     state_id: NonBlankStr
     observation: WarehouseObservation
     action_mask: ActionMask
@@ -112,10 +164,10 @@ class DirectiveContext(DemoModel):
         return cls(state_id=state_id, observation=observation, action_mask=action_mask)
 
 
-class DirectivePrediction(DemoModel):
+class PpoPolicyOutput(DemoModel):
     state_id: NonBlankStr
     episode_step: NonNegativeInt
-    directive: DirectiveDefinition
+    directive: Directive
     probabilities: tuple[float, ...] = Field(min_length=1)
     value_estimate: float
     policy_latency_ms: NonNegativeFloat
@@ -134,7 +186,7 @@ class DirectivePrediction(DemoModel):
         return probabilities
 
 
-class DirectiveProbeConfig(DemoModel):
+class ProbeConfig(DemoModel):
     schema_version: Literal[1, 2]
     environment_id: NonBlankStr
     vocabulary_path: RepositoryPath
@@ -147,7 +199,7 @@ class DirectiveProbeConfig(DemoModel):
         return validate_seed_partition(value, "probe_seeds")
 
 
-class DirectiveProbeReport(DemoModel):
+class ProbeReport(DemoModel):
     schema_version: Literal[1, 2]
     environment_id: NonBlankStr
     vocabulary_sha256: Sha256

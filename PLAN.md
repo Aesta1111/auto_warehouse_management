@@ -19,11 +19,13 @@ The demo now uses subsystem packages under `contracts/`, `directives/`, `ppo/`,
 soft limit. Package initializers are intentionally minimal, and loading a
 contract or YAML config does not import Torch, Lightning, SB3, or httpx.
 
-The four directive behavior classes were replaced by one Specification-style
-`DirectiveRule` table and one execution engine. The rule digest covers the
-canonical ordered descriptions plus `directive-rule-engine-v2`, rather than
-whole source-file bytes. The active PPO is a plain PyTorch module with policy
-adapters; SB3 remains a lazy historical reference and Fabric is training-only.
+The four directive behavior classes are owned by one `DirectiveCatalog` whose
+complete `Directive` records contain both YAML metadata and executable
+semantics. One `Registry` implements the shared engine. The behavior digest
+covers the canonical ordered semantic descriptors plus
+`directive-rule-engine-v2`, rather than whole source-file bytes. The active PPO
+is a plain PyTorch model with policy adapters; SB3 remains a lazy historical
+reference and Fabric is training-only.
 
 Inference uses `ModelBackend.health()` and `generate()`. `LlamaCppBackend` is
 the retained implementation; `GemmaActioner` only builds/parses messages, while
@@ -71,11 +73,11 @@ Represent the neural output as a typed `DirectiveToken`, not as free-form text:
   action must do when the directive is applicable.
 
 The neural network predicts only `directive_id`. Application code resolves the
-ID through a versioned directive vocabulary before constructing the LLM prompt.
+ID through a versioned directive catalog before constructing the LLM prompt.
 This prevents spelling differences or invented words from changing behavior.
 
-The exact vocabulary is intentionally not selected in this plan. Complete a
-small directive-vocabulary spike before training:
+The exact catalog is intentionally not selected in this plan. Complete a
+small directive-catalog spike before training:
 
 1. Inspect representative tiny-layout trajectories and list the distinct
    high-level intents that precede legal assignments.
@@ -84,7 +86,7 @@ small directive-vocabulary spike before training:
    ensure every reachable state has at least one applicable command.
 4. Merge or remove commands whose deterministic training executors cannot
    produce meaningfully different valid behavior.
-5. Freeze the chosen IDs, English commands, descriptions, and vocabulary
+5. Freeze the chosen IDs, English commands, descriptions, and catalog
    version in YAML before final PPO training. Freeze the
    applicability and action-effect rules in code and reference their versions
    from the YAML.
@@ -97,7 +99,7 @@ semantics that TA-RWARE trajectories do not support.
 ### 2.2 PPO training executor
 
 Train a masked PPO policy whose discrete action space is the frozen directive
-vocabulary. PPO selects `directive_id`; it does not directly select TA-RWARE
+catalog. PPO selects `directive_id`; it does not directly select TA-RWARE
 destination IDs. Phase 3 establishes this behavior with SB3-Contrib
 `MaskablePPO`; Phase 3.5 preserves the MDP while moving the PPO implementation
 into project-owned PyTorch and Lightning components.
@@ -117,7 +119,7 @@ observation -> masked PPO directive -> deterministic directive executor
 ```
 
 At demo time, Gemma replaces only the deterministic directive executor. The PPO
-policy, observation encoding, directive vocabulary, and action mask remain
+policy, observation encoding, directive catalog, and action mask remain
 frozen. This creates an intentional executor-transfer gap: PPO is optimized for
 the deterministic executor, so the demo must measure whether Gemma preserves
 each directive's action effect. Results cannot attribute differences solely to
@@ -261,11 +263,11 @@ Evaluate checkpoints with the deterministic directive executor on validation
 episodes and select by mean completed tasks, using mean return as the declared
 tie-breaker. Record directive frequencies, masked-action counts, entropy, and
 whether the learned policy collapses to one directive. If fewer than two
-non-wait directives are selected on validation episodes, revise the vocabulary
+non-wait directives are selected on validation episodes, revise the catalog
 or reward-neutral executor semantics before involving Gemma.
 
 Save the PPO checkpoint outside Git and write a small manifest containing the
-vocabulary and executor versions, training and validation seeds, architecture,
+catalog and executor versions, training and validation seeds, architecture,
 hyperparameters, validation metrics, Git state, dependency versions, and
 checkpoint digest. This checkpoint is a prototype artifact and must not become
 the PPO checkpoint used by the main scientific experiment.
@@ -282,7 +284,7 @@ reference artifacts; do not convert or overwrite them.
 
 Add one argparse runner with a strict versioned configuration. It should:
 
-1. Load and verify the directive PPO checkpoint, vocabulary, executor, and
+1. Load and verify the directive PPO checkpoint, catalog, executor, and
    manifests.
 2. Check the local Gemma server and run the E4B/E2B preflight.
 3. Run the frozen PPO policy with its deterministic training executor headlessly
@@ -299,7 +301,7 @@ latency, invalid action count, action-effect violations, and deterministic
 executor fallback count. Per-decision records are JSONL; each controller
 receives a small JSON episode summary.
 
-Seeds used for vocabulary discovery, PPO training, PPO validation, or the demo
+Seeds used for catalog discovery, PPO training, PPO validation, or the demo
 become permanently excluded from later scientific evaluation. The two displayed
 episodes are not a statistical comparison.
 
@@ -312,7 +314,7 @@ episodes are not a statistical comparison.
   exception and its non-research status.
 - Add a time-boxed prototype item to `ROADMAP.md` without marking existing phase
   gates complete.
-- Document the directive-vocabulary decision in a dated research-log entry after
+- Document the directive-catalog decision in a dated research-log entry after
   the spike, including rejected alternatives and applicability coverage.
 - Add README commands for training the directive PPO policy, starting the pinned
   local server, and running the demo.
@@ -336,7 +338,7 @@ configs/demo/
 `-- directive-demo-v2.yaml
 src/warehouse_ai/demo/
 |-- contracts/         # Phase-grouped immutable records and configuration
-|-- directives/        # DirectiveRule table, engine, and live probe
+|-- directives/        # Directive table, engine, and live probe
 |-- ppo/               # Model, adapters, math, storage, training, validation
 |-- inference/         # Backend protocol, llama.cpp, prompt, preflight
 |-- evaluation/        # Episode loop, verification, matched runner
@@ -396,18 +398,18 @@ directly:
 | `TarwareEnvWrapper.render()` | Render the live demo | No separate renderer |
 | `TarwareSb3Env` | Retain for the existing direct-joint-action PPO compatibility path | Do not modify its action semantics for directive PPO |
 
-The only new environment-like class is `DirectiveSb3Env`. It is not another
+The only new environment-like class is `Sb3Env`. It is not another
 TA-RWARE wrapper: it owns one existing `TarwareEnvWrapper` by composition and
 translates a scalar directive ID into a validated `JointAction` through
-`DirectiveRegistry`. Its purpose is solely to present
+`Registry`. Its purpose is solely to present
 `Discrete(vocabulary_size)` to SB3.
 
 Move the generic scalar mask-aware sampling helper into the existing
 `warehouse_ai.env.sb3` module as `MaskAwareDiscrete`, beside the existing
-`MaskAwareMultiDiscrete`. `DirectiveSb3Env` imports it. Do not create a separate
+`MaskAwareMultiDiscrete`. `Sb3Env` imports it. Do not create a separate
 `MaskAwareDirectiveSpace` with duplicated sampling logic.
 
-`DirectiveContext` is an immutable request snapshot, not an alternative
+`WarehouseContext` is an immutable request snapshot, not an alternative
 observation. It contains references to the existing `WarehouseObservation` and
 `ActionMask` plus a state digest. `GemmaActionResponse` is only the external JSON
 wire model; it must be decoded immediately into the existing `JointAction` and
@@ -428,41 +430,45 @@ class DemoModel(BaseModel):
     )
 
 
-class DirectiveDefinition(DemoModel):
+class Directive(DemoModel):
     directive_id: NonNegativeInt
     command: str
     description: str
     behavior_key: str
+    # Runtime-only fields attached by DirectiveCatalog.load().
+    agents: AgentSelector = Field(exclude=True)
+    destinations: DestinationSelector = Field(exclude=True)
+    effect: EffectCardinality = Field(exclude=True)
 
 
-class DirectiveVocabulary(DemoModel):
+class DirectiveCatalog(DemoModel):
     schema_version: Literal[1]
     vocabulary_id: str
     behavior_version: str
     wait_directive_id: NonNegativeInt
-    directives: tuple[DirectiveDefinition, ...]
+    directives: tuple[Directive, ...]
 
     @classmethod
-    def load(cls, path: Path) -> DirectiveVocabulary: ...
-    def by_id(self, directive_id: int) -> DirectiveDefinition: ...
+    def load(cls, path: Path) -> DirectiveCatalog: ...
+    def by_id(self, directive_id: int) -> Directive: ...
     @property
     def size(self) -> int: ...
     def digest(self) -> str: ...
 
 
-class DirectiveContext(DemoModel):
+class WarehouseContext(DemoModel):
     state_id: str
     observation: WarehouseObservation
     action_mask: ActionMask
 
     @classmethod
-    def capture(cls, wrapper: TarwareEnvWrapper) -> DirectiveContext: ...
+    def capture(cls, wrapper: TarwareEnvWrapper) -> WarehouseContext: ...
 
 
-class DirectivePrediction(DemoModel):
+class PpoPolicyOutput(DemoModel):
     state_id: str
     episode_step: NonNegativeInt
-    directive: DirectiveDefinition
+    directive: Directive
     probabilities: tuple[float, ...]
     value_estimate: float
     policy_latency_ms: NonNegativeFloat
@@ -470,8 +476,8 @@ class DirectivePrediction(DemoModel):
 
 
 class ActionerRequest(DemoModel):
-    context: DirectiveContext
-    prediction: DirectivePrediction
+    context: WarehouseContext
+    prediction: PpoPolicyOutput
 
 
 class GemmaActionResponse(DemoModel):
@@ -489,7 +495,7 @@ class ActionerResult(DemoModel):
 
 
 class DemoDecision(DemoModel):
-    prediction: DirectivePrediction
+    prediction: PpoPolicyOutput
     action: JointAction
     reason: str
     source: Literal["gemma", "directive_executor", "automatic_no_op"]
@@ -518,7 +524,7 @@ class ModelHealth(DemoModel):
     server_version: str | None
 
 
-class DirectiveProbeReport(DemoModel):
+class ProbeReport(DemoModel):
     schema_version: Literal[1]
     environment_id: str
     vocabulary_sha256: str
@@ -549,23 +555,23 @@ class GemmaPreflightReport(DemoModel):
     passed: bool
 ```
 
-`DirectiveVocabulary` validation must require four to eight definitions,
+`DirectiveCatalog` validation must require four to eight definitions,
 contiguous IDs beginning at zero, unique commands and behavior keys, exactly one
 valid wait ID, nonblank text, and stable tuple ordering by ID.
 
-`DirectiveVocabulary.digest()` hashes its canonical UTF-8 JSON serialization
-with sorted object keys. `DirectivePrediction.probabilities` always has exactly
-`vocabulary.size` entries in ID order, assigns `0.0` to masked directives, and
+`DirectiveCatalog.digest()` hashes its canonical UTF-8 JSON serialization
+with sorted object keys. `PpoPolicyOutput.probabilities` always has exactly
+`catalog.size` entries in ID order, assigns `0.0` to masked directives, and
 sums to one within floating-point tolerance.
 
-`DirectiveContext.capture()` computes `state_id` as SHA-256 over canonical JSON
+`WarehouseContext.capture()` computes `state_id` as SHA-256 over canonical JSON
 for the observation plus the action-mask bytes. The same function is used before
 and after LLM inference to reject stale responses.
 
 Configuration models:
 
 ```python
-class DirectiveProbeConfig(DemoModel):
+class ProbeConfig(DemoModel):
     schema_version: Literal[1, 2]
     environment_id: str
     vocabulary_path: Path
@@ -573,7 +579,7 @@ class DirectiveProbeConfig(DemoModel):
     episode_steps: PositiveInt = 500
 
 
-class DirectivePpoConfig(DemoModel):
+class PpoConfig(DemoModel):
     schema_version: Literal[1, 2, 3]
     environment_id: str
     vocabulary_path: Path
@@ -610,7 +616,7 @@ class LlamaCppBackendConfig(DemoModel):
     seed: int = 0
 
 
-class DirectiveDemoConfig(DemoModel):
+class DemoConfig(DemoModel):
     schema_version: Literal[2]
     environment_id: str
     episode_seed: int = 9100
@@ -643,37 +649,30 @@ two-step operator workflow: run E4B preflight; if it fails, stop that server,
 start E2B, set `selected_model: e2b`, and generate a passing E2B preflight
 report. The episode runner never swaps or launches model processes silently.
 
-### 7.4 Directive rule engine (`directives/`)
+### 7.4 Catalog-owned directive engine (`directives/`)
 
-YAML keeps the closed `behavior_key`; code binds each key to one immutable
-`DirectiveRule` specification containing an agent selector, destination
-selector, and effect cardinality. One `DirectiveRegistry` implements
+YAML keeps the closed `behavior_key`; `DirectiveCatalog.load()` binds each key
+through a private factory and returns complete immutable `Directive` records
+containing the command metadata, agent selector, destination selector, and
+effect cardinality. One `Registry` receives only that catalog and implements
 applicability, deterministic proposal, wrapper decode, and effect validation for
 all four commands.
 
 ```python
-@dataclass(frozen=True)
-class DirectiveRule:
-    behavior_key: str
-    agents: AgentSelector
-    destinations: DestinationSelector
-    effect: EffectCardinality
-
-
-class DirectiveRegistry:
+class Registry:
     engine_version: str
-    def action_mask(self, context: DirectiveContext) -> NDArray[np.bool_]: ...
+    def action_mask(self, context: WarehouseContext) -> NDArray[np.bool_]: ...
     def behavior_digest(self) -> str: ...
     def execute(
         self,
         directive_id: int,
-        context: DirectiveContext,
+        context: WarehouseContext,
         wrapper: TarwareEnvWrapper,
     ) -> JointAction: ...
     def validate_effect(
         self,
         directive_id: int,
-        context: DirectiveContext,
+        context: WarehouseContext,
         action: JointAction,
     ) -> None: ...
 ```
@@ -685,28 +684,28 @@ uniqueness. Effect validation deliberately permits unrelated legal assignments,
 matching the frozen observable semantics.
 
 `behavior_digest()` hashes the explicit engine version and canonical ordered
-rule descriptors. Formatting, comments, file splits, and unrelated source edits
-do not invalidate a checkpoint. `DirectiveError` carries one stable
-`DirectiveFailure` code (`unknown`, `inapplicable`, `executor`, or `effect`)
+semantic descriptors. Formatting, comments, file splits, and unrelated source edits
+do not invalidate a checkpoint. `SemanticsError` carries one stable
+`SemanticsFailure` code (`unknown`, `inapplicable`, `executor`, or `effect`)
 instead of using one exception subclass per condition.
 
 ### 7.5 Directive SB3 facade (`sb3.py`)
 
 ```python
-class DirectiveSb3Env(gym.Env[NDArray[np.float32], int]):
+class Sb3Env(gym.Env[NDArray[np.float32], int]):
     metadata = {"render_modes": ["human"]}
 
     def __init__(
         self,
         environment_id: str,
-        vocabulary: DirectiveVocabulary,
-        registry: DirectiveRegistry,
+        catalog: DirectiveCatalog,
+        registry: Registry,
         episode_seeds: Sequence[int],
         episode_steps: int = 500,
     ) -> None: ...
 
     @property
-    def context(self) -> DirectiveContext: ...
+    def context(self) -> WarehouseContext: ...
     def action_masks(self) -> NDArray[np.bool_]: ...
     def reset(
         self,
@@ -721,10 +720,10 @@ class DirectiveSb3Env(gym.Env[NDArray[np.float32], int]):
     def close(self) -> None: ...
 ```
 
-`DirectiveSb3Env` constructs exactly one `TarwareEnvWrapper` and delegates all
+`Sb3Env` constructs exactly one `TarwareEnvWrapper` and delegates all
 simulator lifecycle and action validation to it. The observation space copies
 the shape and dtype of `WarehouseObservation.encode()`. The action space is the
-shared `MaskAwareDiscrete(vocabulary.size, self.action_masks)` from
+shared `MaskAwareDiscrete(catalog.size, self.action_masks)` from
 `warehouse_ai.env.sb3`. Its `sample()` honors an explicit Gymnasium mask when
 provided and otherwise samples from the live mask provider, allowing
 `check_env()` to exercise only applicable directives. `reset(seed=...)` uses
@@ -746,11 +745,11 @@ different transition function.
 ### 7.6 PPO adapters and training (`ppo/`)
 
 ```python
-class DirectivePpoPolicy:
+class PpoPolicy:
     def __init__(
         self,
         adapter: PolicyAdapter,
-        vocabulary: DirectiveVocabulary,
+        catalog: DirectiveCatalog,
         checkpoint_sha256: str,
     ) -> None: ...
 
@@ -758,31 +757,31 @@ class DirectivePpoPolicy:
     def load(
         cls,
         checkpoint: Path,
-        vocabulary: DirectiveVocabulary,
-        manifest: DirectivePpoManifest,
-    ) -> DirectivePpoPolicy: ...
+        catalog: DirectiveCatalog,
+        manifest: PpoManifest,
+    ) -> PpoPolicy: ...
 
     def predict(
         self,
-        context: DirectiveContext,
+        context: WarehouseContext,
         directive_mask: NDArray[np.bool_],
-    ) -> DirectivePrediction: ...
+    ) -> PpoPolicyOutput: ...
 
 
 def train_directive_ppo(
-    config: DirectivePpoConfig,
-    vocabulary: DirectiveVocabulary,
-    registry: DirectiveRegistry,
+    config: PpoConfig,
+    catalog: DirectiveCatalog,
+    registry: Registry,
     output_directory: Path,
-) -> DirectivePpoManifest: ...
+) -> PpoManifest: ...
 
 
 def evaluate_directive_ppo(
-    policy: DirectivePpoPolicy,
-    config: DirectivePpoConfig,
-    vocabulary: DirectiveVocabulary,
-    registry: DirectiveRegistry,
-) -> DirectivePpoValidationSummary: ...
+    policy: PpoPolicy,
+    config: PpoConfig,
+    catalog: DirectiveCatalog,
+    registry: Registry,
+) -> PpoValidationSummary: ...
 ```
 
 `predict()` verifies mask shape and at least one valid action. The selected
@@ -792,15 +791,15 @@ order. Equal probabilities select the lowest directive ID. It must not sample
 during validation or the demo.
 
 `train_directive_ppo()` constructs separate training and validation environment
-instances and a plain `DirectivePpoModel(torch.nn.Module)`. The explicit
+instances and a plain `PpoModel(torch.nn.Module)`. The explicit
 collector, rollout buffer, GAE, clipped loss, and update loop use Lightning
 Fabric only for device/optimizer orchestration. Evaluate every 5,000 training
 steps, retain only the best checkpoint by the declared validation rule, and
 write the manifest after hashing the saved file. The schema-v1 SB3 path is
 loaded lazily only to reproduce the historical reference.
 
-`DirectivePpoManifest` schema v3 additionally records the behavior engine
-version and semantic rule digest. It also records package versions, seeds,
+`PpoManifest` schema v3 additionally records the behavior engine
+version and semantic behavior digest. It also records package versions, seeds,
 hyperparameters, architecture/implementation identities, checkpoint SHA-256,
 validation summary, Git commit, dirty flag, and UTC timestamp. Loading fails if
 any current identity differs.
@@ -808,7 +807,7 @@ any current identity differs.
 ### 7.7 PPO model and buffer ownership refactor (Phase 3.5)
 
 Phase 3.5 is a controlled breaking refactor of the Phase 3 PPO implementation.
-It does not change the directive MDP. `DirectiveSb3Env`, observation encoding,
+It does not change the directive MDP. `Sb3Env`, observation encoding,
 directive masks, deterministic executors, rewards, episode limits, training and
 validation seeds, checkpoint-selection rule, and validation metrics remain
 fixed. Only ownership of the PPO algorithm moves from SB3-Contrib into explicit
@@ -868,7 +867,7 @@ class PpoLossTerms:
 The trainable model is one Lightning module:
 
 ```python
-class DirectivePpoModule(pl.LightningModule):
+class PpoModel(pl.LightningModule):
     def __init__(
         self,
         observation_size: int,
@@ -911,7 +910,7 @@ uses lowest-ID argmax tie-breaking, while rollout collection samples from the
 same masked probabilities through `torch.multinomial()` with the supplied
 seeded PyTorch generator.
 
-`DirectivePpoModule.compute_loss()` is the authoritative training calculation.
+`PpoModel.compute_loss()` is the authoritative training calculation.
 It delegates the pure arithmetic to `compute_ppo_loss()` and owns coefficients,
 logging names, and optimizer configuration. `training_step()` remains a thin
 Lightning-compatible call to `compute_loss()`; neither method may collect
@@ -961,7 +960,7 @@ trace normally. Encode those rules explicitly through `bootstrap_masks` and
 The rollout buffer owns storage only:
 
 ```python
-class DirectiveRolloutBuffer:
+class RolloutBuffer:
     def __init__(
         self,
         capacity: int,
@@ -1003,33 +1002,33 @@ model, optimizer, logger, or checkpoint path.
 Collection and optimization remain separate classes:
 
 ```python
-class DirectiveRolloutCollector:
+class RolloutCollector:
     def collect(
         self,
-        module: DirectivePpoModule,
-        environment: DirectiveSb3Env,
-        buffer: DirectiveRolloutBuffer,
+        module: PpoModel,
+        environment: Sb3Env,
+        buffer: RolloutBuffer,
         *,
         rollout_steps: int,
         generator: torch.Generator,
     ) -> None: ...
 
 
-class DirectivePpoTrainingLoop:
+class PpoTrainingLoop:
     def fit(
         self,
-        module: DirectivePpoModule,
-        config: DirectivePpoConfig,
-        training_environment: DirectiveSb3Env,
-        validation_environment: DirectiveSb3Env,
+        module: PpoModel,
+        config: PpoConfig,
+        training_environment: Sb3Env,
+        validation_environment: Sb3Env,
         output_directory: Path,
-    ) -> DirectivePpoManifest: ...
+    ) -> PpoManifest: ...
 ```
 
-`DirectiveRolloutCollector` runs inference mode, samples only applicable
+`RolloutCollector` runs inference mode, samples only applicable
 directives, records the returned next-state value before resetting a terminated
 or truncated episode, and fills exactly one buffer. It never performs an
-optimizer step. `DirectivePpoTrainingLoop` alternates one finalized rollout
+optimizer step. `PpoTrainingLoop` alternates one finalized rollout
 with `n_epochs` of seeded minibatches, clips gradients, optionally stops an
 update on a declared target KL, validates every 5,000 environment steps, and
 selects checkpoints by the unchanged Phase 3 rule.
@@ -1039,7 +1038,7 @@ Use one long-lived model and optimizer for the entire run. Standard Lightning
 to own simulator interaction through a DataLoader or private loop API. Use
 Lightning Fabric for device placement, backward, gradient clipping, logging,
 and checkpoint support around the explicit on-policy loop. The
-`DirectivePpoModule` still owns forward, action evaluation, loss, metrics, and
+`PpoModel` still owns forward, action evaluation, loss, metrics, and
 optimizer configuration. Record the exact Lightning and Fabric versions in the
 manifest.
 
@@ -1048,13 +1047,13 @@ generator from explicit config-derived values. Checkpoints are written only at
 completed PPO-update boundaries, so no partially filled rollout buffer needs to
 be serialized or resumed.
 
-Refactor `DirectivePpoPolicy` to wrap a frozen `DirectivePpoModule` while
+Refactor `PpoPolicy` to wrap a frozen `PpoModel` while
 preserving its existing `predict(context, directive_mask)` behavior and
-`DirectivePrediction` output. The new loader verifies the checkpoint,
-vocabulary, behavior, architecture, and implementation digests before loading
+`PpoPolicyOutput` output. The new loader verifies the checkpoint,
+catalog, behavior, architecture, and implementation digests before loading
 the state dictionary on CPU.
 
-Advance `DirectivePpoConfig` and `DirectivePpoManifest` to schema version 2 and
+Advance `PpoConfig` and `PpoManifest` to schema version 2 and
 write `configs/demo/directive-ppo-v2.yaml`. Add explicit fields for
 `value_coefficient`, `max_grad_norm`, `normalize_advantage`, optional
 `target_kl`, model implementation version, buffer schema version, GAE version,
@@ -1091,8 +1090,8 @@ class PromptEnvelope(DemoModel):
 
 class GemmaPromptBuilder:
     def build(self, request: ActionerRequest) -> PromptEnvelope: ...
-    def serialize_state(self, context: DirectiveContext) -> str: ...
-    def response_schema(self, context: DirectiveContext) -> dict[str, Any]: ...
+    def serialize_state(self, context: WarehouseContext) -> str: ...
+    def response_schema(self, context: WarehouseContext) -> dict[str, Any]: ...
 ```
 
 Use one fixed system message defining Gemma as the actioner and one user message
@@ -1163,20 +1162,20 @@ class DemoController(Protocol):
     def choose_action(self, wrapper: TarwareEnvWrapper) -> DemoDecision: ...
 
 
-class DirectiveExecutorController:
+class ExecutorController:
     def __init__(
         self,
-        policy: DirectivePpoPolicy,
-        registry: DirectiveRegistry,
+        policy: PpoPolicy,
+        registry: Registry,
     ) -> None: ...
     def choose_action(self, wrapper: TarwareEnvWrapper) -> DemoDecision: ...
 
 
-class DirectiveGemmaController:
+class GemmaController:
     def __init__(
         self,
-        policy: DirectivePpoPolicy,
-        registry: DirectiveRegistry,
+        policy: PpoPolicy,
+        registry: Registry,
         actioner: Actioner,
     ) -> None: ...
     def choose_action(self, wrapper: TarwareEnvWrapper) -> DemoDecision: ...
@@ -1199,7 +1198,7 @@ is the exact action subsequently sent to `wrapper.step()`.
 ### 7.11 Episode runner and artifacts (`evaluation/`, `artifacts.py`)
 
 ```python
-class DirectivePpoValidationSummary(DemoModel):
+class PpoValidationSummary(DemoModel):
     seeds: tuple[int, ...]
     mean_completed_tasks: NonNegativeFloat
     mean_return: float
@@ -1208,7 +1207,7 @@ class DirectivePpoValidationSummary(DemoModel):
     inapplicable_directives: NonNegativeInt
 
 
-class DirectivePpoManifest(DemoModel):
+class PpoManifest(DemoModel):
     schema_version: Literal[1]
     environment_id: str
     vocabulary_sha256: str
@@ -1218,7 +1217,7 @@ class DirectivePpoManifest(DemoModel):
     validation_seeds: tuple[int, ...]
     algorithm_seed: int
     hyperparameters: dict[str, JsonValue]
-    validation: DirectivePpoValidationSummary
+    validation: PpoValidationSummary
     package_versions: dict[str, str]
     git_commit: str
     dirty_worktree: bool
@@ -1268,7 +1267,7 @@ def run_episode(
 ) -> EpisodeResult: ...
 
 
-def run_matched_demo(config: DirectiveDemoConfig) -> DemoRunSummary: ...
+def run_matched_demo(config: DemoConfig) -> DemoRunSummary: ...
 
 
 def sha256_file(path: Path) -> str: ...
@@ -1288,7 +1287,7 @@ deterministic executor first, creates a fresh wrapper for the PPO plus Gemma run
 and saves both episode results plus one comparison summary. It labels all output
 `demo_only: true` and never computes significance or an improvement claim.
 
-Manifest verification checks checkpoint, vocabulary, behavior-registry, and
+Manifest verification checks checkpoint, catalog, behavior-registry, and
 preflight-report digests before either episode starts. `write_json_atomic()`
 writes to a sibling temporary file and replaces only the final small JSON
 artifact after serialization succeeds; JSONL decision records remain append-only
@@ -1314,7 +1313,7 @@ python scripts/run_directive_demo.py --config configs/demo/directive-demo-v2.yam
 - `probe_directives.py` exercises applicability, executors, and action effects
   across representative seeded trajectories and writes coverage only; it does
   not train.
-- `train_directive_ppo.py` validates the vocabulary spike output, trains,
+- `train_directive_ppo.py` validates the catalog spike output, trains,
   evaluates, and writes a checkpoint manifest. The v1 config reproduces the
   Phase 3 SB3 reference; the v3 config is the plain-PyTorch/Fabric replacement
   used by the refactored demo.
@@ -1339,13 +1338,13 @@ and 7.1-7.12 are authoritative; the refactor did not rewrite old phase evidence.
 
 Create:
 
-- In `models.py`: `DemoModel`, `DirectiveDefinition`,
-  `DirectiveVocabulary`, `DirectiveContext`, `DirectiveProbeConfig`,
-  `DirectivePpoConfig`, `LlamaCppConfig`, and `DirectiveDemoConfig`.
+- In `models.py`: `DemoModel`, `Directive`,
+  `DirectiveCatalog`, `WarehouseContext`, `ProbeConfig`,
+  `PpoConfig`, `LlamaCppConfig`, and `DemoConfig`.
 - In `artifacts.py`: `sha256_file()`, `capture_git_state()`,
   `write_json_atomic()`, and canonical JSON helpers used by model digests and
-  `DirectiveContext.capture()`.
-- In `models.py`: `DirectiveProbeReport` because it is the output contract for
+  `WarehouseContext.capture()`.
+- In `models.py`: `ProbeReport` because it is the output contract for
   the next phase.
 
 Do not create PPO, prompt, controller, or LLM classes yet. Phase 1 may import
@@ -1354,7 +1353,7 @@ only the existing project-owned domain records and `TarwareEnvWrapper`.
 Deliverables:
 
 - The four validated YAML config files parse through `load_yaml_config()`.
-- Canonical vocabulary and state digests repeat byte-for-byte.
+- Canonical catalog and state digests repeat byte-for-byte.
 - Invalid IDs, duplicate behavior keys, overlapping seeds, absolute committed
   paths, and malformed URLs fail before simulator construction.
 
@@ -1366,17 +1365,17 @@ config performs no network, model, or simulator work.
 Create in `directives.py`:
 
 - `DirectiveBehavior` protocol.
-- `DirectiveRegistry`.
-- `DirectiveError`, `UnknownDirectiveError`,
-  `InapplicableDirectiveError`, `DirectiveExecutorError`, and
+- `Registry`.
+- `SemanticsError`, `UnknownSemanticsError`,
+  `InapplicableSemanticsError`, `DirectiveExecutorError`, and
   `DirectiveEffectError`.
-- One concrete `DirectiveBehavior` class per command retained by the vocabulary
+- One concrete `DirectiveBehavior` class per command retained by the catalog
   spike. These concrete class names are decided by that spike and recorded in
   its research-log entry; they are not guessed in advance.
 
 Create `probe_directives.py` only after the registry API is tested. The script
-loads Phase 1 models, constructs real `DirectiveContext` values, and writes a
-`DirectiveProbeReport`.
+loads Phase 1 models, constructs real `WarehouseContext` values, and writes a
+`ProbeReport`.
 
 Phase 2 depends only on Phase 1 plus existing domain/environment classes. It
 must not import SB3, HTTP clients, prompt builders, or controllers.
@@ -1400,11 +1399,11 @@ Create:
 
 - In existing `warehouse_ai.env.sb3`: add generic `MaskAwareDiscrete` beside
   `MaskAwareMultiDiscrete`; do not change `TarwareSb3Env` behavior.
-- In `demo/sb3.py`: `DirectiveSb3Env`, which composes exactly one
+- In `demo/sb3.py`: `Sb3Env`, which composes exactly one
   `TarwareEnvWrapper`.
-- In the Phase 3 group of `models.py`: `DirectivePrediction`,
-  `DirectivePpoValidationSummary`, and `DirectivePpoManifest`.
-- In `ppo.py`: `DirectivePpoPolicy`, `train_directive_ppo()`, and
+- In the Phase 3 group of `models.py`: `PpoPolicyOutput`,
+  `PpoValidationSummary`, and `PpoManifest`.
+- In `ppo.py`: `PpoPolicy`, `train_directive_ppo()`, and
   `evaluate_directive_ppo()`.
 - `train_directive_ppo.py` as the thin command-line adapter around those APIs.
 
@@ -1413,12 +1412,12 @@ not know about Gemma, prompts, HTTP, actioner plans, or demo rendering.
 
 Deliverables:
 
-- `DirectiveSb3Env` passes Gymnasium checks and MaskablePPO consumes its
+- `Sb3Env` passes Gymnasium checks and MaskablePPO consumes its
   one-dimensional directive mask.
 - Executor failures stop training instead of silently changing transitions.
 - PPO save/reload preserves the deterministic directive and probabilities for
   fixed observation-mask pairs.
-- Validation writes a manifest tied to vocabulary, behavior, checkpoint, seed,
+- Validation writes a manifest tied to catalog, behavior, checkpoint, seed,
   dependency, and Git digests.
 - The selected policy uses at least two non-wait directives on validation
   episodes.
@@ -1437,14 +1436,14 @@ reference; do not rewrite their history.
 Create:
 
 - In `ppo_model.py`: `PpoForwardOutput`, `PpoActionSample`, `PpoLossTerms`, and
-  `DirectivePpoModule`.
-- In `ppo_buffer.py`: `PpoBatch` and `DirectiveRolloutBuffer`.
+  `PpoModel`.
+- In `ppo_buffer.py`: `PpoBatch` and `RolloutBuffer`.
 - In `ppo_math.py`: `compute_gae()` and `compute_ppo_loss()`.
-- In `ppo_training.py`: `DirectiveRolloutCollector` and
-  `DirectivePpoTrainingLoop`.
-- In `models.py`: schema-v2 `DirectivePpoConfig` and
-  `DirectivePpoManifest` fields for implementation provenance.
-- In `ppo.py`: the refactored `DirectivePpoPolicy` adapter and stable public
+- In `ppo_training.py`: `RolloutCollector` and
+  `PpoTrainingLoop`.
+- In `models.py`: schema-v2 `PpoConfig` and
+  `PpoManifest` fields for implementation provenance.
+- In `ppo.py`: the refactored `PpoPolicy` adapter and stable public
   training/evaluation functions.
 - `configs/demo/directive-ppo-v2.yaml` using the same seeds, episode length,
   training budget, architecture, and checkpoint-selection rule as Phase 3.
@@ -1491,7 +1490,7 @@ Create:
 - In `inference/actioner.py`: the demo-specific `Actioner` protocol and
   structured `ActionerError`.
 - In `controllers.py`: `DemoController`,
-  `DirectiveExecutorController`, and `DirectiveGemmaController`.
+  `ExecutorController`, and `GemmaController`.
 - In tests only: `FakeActioner`, implemented against the public `Actioner`
   protocol rather than added to production code.
 
@@ -1549,13 +1548,13 @@ Create:
   or metrics logic.
 
 Phase 6 composes the frozen public APIs from Phases 1-5. It may not revise the
-directive vocabulary, behavior rules, PPO checkpoint, prompt schema, or
+directive catalog, behavior rules, PPO checkpoint, prompt schema, or
 preflight result during an episode.
 
 Deliverables:
 
 - One headless PPO-plus-executor episode and one rendered
-  PPO-plus-Gemma-actioner episode use the same seed, settings, vocabulary, and
+  PPO-plus-Gemma-actioner episode use the same seed, settings, catalog, and
   frozen PPO checkpoint.
 - Each decision is flushed to JSONL, and small episode and comparison summaries
   are atomically written.
@@ -1587,19 +1586,19 @@ schemas, digests, and behavior need only rerun affected tests.
 - Every reachable test state has at least one applicable directive.
 - Each deterministic directive executor uses only controller-visible state and
   returns a strict valid action satisfying its action-effect rule.
-- Directive masks match the frozen vocabulary and reject inapplicable actions.
+- Directive masks match the frozen catalog and reject inapplicable actions.
 - Shared `MaskAwareDiscrete.sample()` never returns a masked directive, and the
   directive facade passes Gymnasium's checker without changing
   `TarwareSb3Env`.
 - PPO policy input, action distribution, and value shapes match the frozen
-  observation and vocabulary.
+  observation and catalog.
 - Phase 3.5 masked logits give inapplicable directives zero probability, and
   the model exposes stable policy- and value-latent shapes.
 - `compute_gae()` matches hand-calculated termination, truncation, and rollout-
   boundary cases without leaking a reset state's value backward.
 - `compute_ppo_loss()` matches hand-calculated unclipped and clipped policy
   terms, value loss, entropy, approximate KL, and clip fraction.
-- `DirectiveRolloutBuffer` rejects overflow and premature minibatch access,
+- `RolloutBuffer` rejects overflow and premature minibatch access,
   preserves the exact action mask and old log probability for each transition,
   and yields every finalized item once per seeded epoch.
 - Fixed PPO checkpoints, observations, and masks produce identical directive
@@ -1610,7 +1609,7 @@ schemas, digests, and behavior need only rerun affected tests.
 - Malformed JSON, wrong-length vectors, out-of-range or masked destinations,
   same-role conflicts, timeouts, server errors, and stale state all trigger the
   deterministic directive-executor fallback.
-- Checkpoint, vocabulary, behavior, prompt-schema, model-file, and preflight
+- Checkpoint, catalog, behavior, prompt-schema, model-file, and preflight
   digest mismatches stop before an episode begins.
 - Decision logs, manifests, and episode summaries validate against their
   schemas.
@@ -1638,8 +1637,8 @@ schemas, digests, and behavior need only rerun affected tests.
 
 The first prototype is complete when:
 
-- The directive-vocabulary spike freezes a versioned four-to-eight command
-  vocabulary with deterministic applicability, executor, and action-effect
+- The directive-catalog spike freezes a versioned four-to-eight command
+  catalog with deterministic applicability, executor, and action-effect
   rules.
 - A clean command trains or loads the directive PPO checkpoint and reproduces
   its manifest and validation summary.

@@ -5,14 +5,14 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from warehouse_ai.demo.directives import build_directive_registry
-from warehouse_ai.demo.contracts.directives import DirectiveVocabulary
+from warehouse_ai.demo.directives import build_registry
+from warehouse_ai.demo.contracts.directives import DirectiveCatalog
 from warehouse_ai.demo.contracts.ppo import (
-    DirectivePpoConfig,
-    DirectivePpoValidationSummary,
+    PpoConfig,
+    PpoValidationSummary,
 )
-from warehouse_ai.demo.ppo.environment import DirectiveGymEnv
-from warehouse_ai.demo.ppo.policy import DirectivePpoPolicy
+from warehouse_ai.demo.ppo.environment import GymEnv
+from warehouse_ai.demo.ppo.policy import PpoPolicy
 from warehouse_ai.demo.ppo.service import train_directive_ppo
 
 
@@ -24,9 +24,9 @@ def test_short_fabric_collect_update_checkpoint_and_reload(
     tmp_path: Path,
     monkeypatch: object,
 ) -> None:
-    vocabulary = DirectiveVocabulary.load(ROOT / "configs/demo/directives-v1.yaml")
-    registry = build_directive_registry(vocabulary)
-    config = DirectivePpoConfig(
+    catalog = DirectiveCatalog.load(ROOT / "configs/demo/directives-v1.yaml")
+    registry = build_registry(catalog)
+    config = PpoConfig(
         schema_version=3,
         environment_id=ENVIRONMENT_ID,
         vocabulary_path=Path("configs/demo/directives-v1.yaml"),
@@ -47,7 +47,7 @@ def test_short_fabric_collect_update_checkpoint_and_reload(
         gae_version="gae-terminated-bootstrap-truncated-trace-v1",
         loss_version="clipped-ppo-loss-v1",
     )
-    summary = DirectivePpoValidationSummary(
+    summary = PpoValidationSummary(
         seeds=(8200,),
         mean_completed_tasks=0.0,
         mean_return=0.0,
@@ -61,30 +61,28 @@ def test_short_fabric_collect_update_checkpoint_and_reload(
     )
 
     output_directory = tmp_path / "directive-ppo-v3-smoke"
-    manifest = train_directive_ppo(config, vocabulary, registry, output_directory)
+    manifest = train_directive_ppo(config, catalog, registry, output_directory)
     checkpoint = output_directory / "directive-ppo-v3.pt"
     assert manifest.schema_version == 3
     assert manifest.behavior_engine_version == registry.engine_version
     assert manifest.hyperparameters["optimizer_steps"] == 4
     assert manifest.hyperparameters["selected_checkpoint_environment_steps"] == 8
     assert manifest.hyperparameters["selected_checkpoint_optimizer_steps"] == 4
-    loaded = DirectivePpoPolicy.load(checkpoint, vocabulary, manifest)
+    loaded = PpoPolicy.load(checkpoint, catalog, manifest)
     with pytest.raises(ValueError, match="implementation digest"):
-        DirectivePpoPolicy.load(
+        PpoPolicy.load(
             checkpoint,
-            vocabulary,
+            catalog,
             manifest.model_copy(update={"implementation_sha256": "0" * 64}),
         )
     with pytest.raises(ValueError, match="architecture digest"):
-        DirectivePpoPolicy.load(
+        PpoPolicy.load(
             checkpoint,
-            vocabulary,
+            catalog,
             manifest.model_copy(update={"architecture_sha256": "0" * 64}),
         )
 
-    environment = DirectiveGymEnv(
-        ENVIRONMENT_ID, vocabulary, registry, (8200,), episode_steps=16
-    )
+    environment = GymEnv(ENVIRONMENT_ID, catalog, registry, (8200,), episode_steps=16)
     try:
         environment.reset(seed=8200)
         mask = environment.action_masks()

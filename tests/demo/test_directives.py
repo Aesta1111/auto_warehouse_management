@@ -1,22 +1,20 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
 import pytest
 
-from warehouse_ai.demo.contracts.directives import DirectiveContext, DirectiveVocabulary
+from warehouse_ai.demo.contracts.directives import DirectiveCatalog, WarehouseContext
 from warehouse_ai.demo.directives import (
     BEHAVIOR_ENGINE_VERSION,
-    DirectiveError,
-    DirectiveFailure,
-    DirectiveRegistry,
-    build_directive_registry,
+    SemanticsError,
+    SemanticsFailure,
+    Registry,
+    build_registry,
 )
 from warehouse_ai.demo.directives.rules import (
-    RULES,
     AgentSelector,
     DestinationSelector,
     EffectCardinality,
@@ -30,8 +28,8 @@ ENVIRONMENT_ID = "tarware-tiny-3agvs-2pickers-partialobs-v1"
 
 
 @pytest.fixture
-def vocabulary() -> DirectiveVocabulary:
-    return DirectiveVocabulary.load(ROOT / "configs/demo/directives-v1.yaml")
+def catalog() -> DirectiveCatalog:
+    return DirectiveCatalog.load(ROOT / "configs/demo/directives-v1.yaml")
 
 
 @pytest.fixture
@@ -42,34 +40,49 @@ def wrapper() -> Iterator[TarwareEnvWrapper]:
     environment.close()
 
 
-def test_rule_table_is_the_frozen_four_command_specification() -> None:
+def test_catalog_contains_the_frozen_four_command_specification(
+    catalog: DirectiveCatalog,
+) -> None:
     assert BEHAVIOR_ENGINE_VERSION == "directive-rule-engine-v2"
-    assert [rule.behavior_key for rule in RULES] == [
+    assert (
+        catalog.digest()
+        == "b1182beaebab4bb1f7e43673a04b856ea487b4457d47bf973e0b421bf6fdb0f8"
+    )
+    assert [directive.behavior_key for directive in catalog.directives] == [
         "wait",
         "service_requested_shelf",
         "deliver_carried_shelf",
         "reposition_idle_agent",
     ]
-    assert [rule.agents for rule in RULES] == [
+    assert [directive.agents for directive in catalog.directives] == [
         AgentSelector.ANY_IDLE,
         AgentSelector.ANY_IDLE,
         AgentSelector.CARRYING_AGV,
         AgentSelector.NON_CARRYING_IDLE,
     ]
-    assert [rule.destinations for rule in RULES] == [
+    assert [directive.destinations for directive in catalog.directives] == [
         DestinationSelector.NONE,
         DestinationSelector.REQUESTED_SHELVES,
         DestinationSelector.GOALS,
         DestinationSelector.NON_REQUESTED,
     ]
-    assert [rule.effect.minimum for rule in RULES] == [0, 1, 1, 1]
+    assert [directive.effect.minimum for directive in catalog.directives] == [
+        0,
+        1,
+        1,
+        1,
+    ]
 
 
 def test_initial_state_parity_and_deterministic_numeric_tie_breaking(
-    vocabulary: DirectiveVocabulary, wrapper: TarwareEnvWrapper
+    catalog: DirectiveCatalog, wrapper: TarwareEnvWrapper
 ) -> None:
-    registry = build_directive_registry(vocabulary)
-    context = DirectiveContext.capture(wrapper)
+    registry = build_registry(catalog)
+    assert (
+        registry.behavior_digest()
+        == "8235531267098fd36affb7deac93e87bccabbfa267f7f3e218caa13031e4d291"
+    )
+    context = WarehouseContext.capture(wrapper)
     mask = registry.action_mask(context)
     assert tuple(bool(value) for value in mask) == (True, True, False, False)
     assert not mask.flags.writeable
@@ -87,7 +100,7 @@ def test_initial_state_parity_and_deterministic_numeric_tie_breaking(
 
 
 def _action(
-    context: DirectiveContext, row: int | None, destination: int = 0
+    context: WarehouseContext, row: int | None, destination: int = 0
 ) -> JointAction:
     return JointAction(
         actions=tuple(
@@ -100,7 +113,7 @@ def _action(
     )
 
 
-def _allow(context: DirectiveContext, row: int, destination: int) -> DirectiveContext:
+def _allow(context: WarehouseContext, row: int, destination: int) -> WarehouseContext:
     values = context.action_mask.values.copy()
     values[row, destination] = True
     return context.model_copy(
@@ -114,10 +127,10 @@ def _allow(context: DirectiveContext, row: int, destination: int) -> DirectiveCo
 
 
 def test_effect_validation_covers_all_four_rules(
-    vocabulary: DirectiveVocabulary, wrapper: TarwareEnvWrapper
+    catalog: DirectiveCatalog, wrapper: TarwareEnvWrapper
 ) -> None:
-    registry = build_directive_registry(vocabulary)
-    base = DirectiveContext.capture(wrapper)
+    registry = build_registry(catalog)
+    base = WarehouseContext.capture(wrapper)
     requested = next(s.destination_id for s in base.observation.shelves if s.requested)
     registry.validate_effect(0, base, _action(base, None))
     registry.validate_effect(1, base, _action(base, 0, requested))
@@ -146,25 +159,32 @@ def test_effect_validation_covers_all_four_rules(
     assert bool(registry.action_mask(reposition)[3])
     registry.validate_effect(3, reposition, _action(reposition, 0, non_requested))
 
-    with pytest.raises(DirectiveError) as error:
+    with pytest.raises(SemanticsError) as error:
         registry.validate_effect(1, base, _action(base, None))
-    assert error.value.code is DirectiveFailure.EFFECT
+    assert error.value.code is SemanticsFailure.EFFECT
 
 
 def test_errors_are_structured_and_digest_tracks_semantics_not_file_bytes(
-    vocabulary: DirectiveVocabulary, wrapper: TarwareEnvWrapper
+    catalog: DirectiveCatalog, wrapper: TarwareEnvWrapper
 ) -> None:
-    registry = build_directive_registry(vocabulary)
-    context = DirectiveContext.capture(wrapper)
-    with pytest.raises(DirectiveError) as unknown:
+    registry = build_registry(catalog)
+    context = WarehouseContext.capture(wrapper)
+    with pytest.raises(SemanticsError) as unknown:
         registry.execute(99, context, wrapper)
-    assert unknown.value.code is DirectiveFailure.UNKNOWN
-    with pytest.raises(DirectiveError) as inapplicable:
+    assert unknown.value.code is SemanticsFailure.UNKNOWN
+    with pytest.raises(SemanticsError) as inapplicable:
         registry.execute(2, context, wrapper)
-    assert inapplicable.value.code is DirectiveFailure.INAPPLICABLE
+    assert inapplicable.value.code is SemanticsFailure.INAPPLICABLE
 
-    changed = (*RULES[:3], replace(RULES[3], effect=EffectCardinality(2)))
-    assert (
-        DirectiveRegistry(vocabulary, changed).behavior_digest()
-        != registry.behavior_digest()
+    changed_directive = catalog.by_id(3).model_copy(
+        update={"effect": EffectCardinality(2)}
     )
+    changed_catalog = catalog.model_copy(
+        update={
+            "directives": (
+                *catalog.directives[:3],
+                changed_directive,
+            )
+        }
+    )
+    assert Registry(changed_catalog).behavior_digest() != registry.behavior_digest()

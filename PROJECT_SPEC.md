@@ -487,11 +487,12 @@ These are implementation discoveries, not open product preferences:
 `plan.md` defines a separate neural-directive plus frozen-Gemma actioner demo.
 The prototype is deliberately unscored and does not fine-tune Gemma, inject soft
 tokens, change the main primary metric, consume held-out research seeds, or
-complete any main-project phase gate. Its Phase 2 vocabulary is frozen as four
+complete any main-project phase gate. Its Phase 2 directive catalog is frozen as four
 controller-visible commands: `wait`, `service-requested-shelf`,
 `deliver-carried-shelf`, and `reposition-idle-agent`. Deterministic executors
-and effect validators are implemented by the declarative rule table and shared
-engine in `warehouse_ai.demo.directives`; the live probe evidence is recorded
+and effect validators are implemented by the catalog-owned declarative directive
+semantics and shared engine in `warehouse_ai.demo.directives`; the live probe
+evidence is recorded
 in the research log. The prototype's Phase 3
 directive PPO now uses a one-dimensional masked `Discrete(4)` action space and
 the existing strict `TarwareEnvWrapper` for deterministic training execution.
@@ -502,7 +503,7 @@ optimization components. The 2026-08-22 architecture refactor moved these into
 training composition, and retained SB3 behind a lazy reference adapter. Its
 schema-v3 replacement checkpoint passed the original seed and coverage gates;
 the schema-v1/v2 checkpoints remain immutable reference artifacts.
-Phase 6 adds a matched, unscored runner that verifies the vocabulary, behavior,
+Phase 6 adds a matched, unscored runner that verifies the catalog, behavior,
 probe, preflight, and PPO checkpoint digests before resetting TA-RWARE, then
 runs one headless deterministic-executor episode and one fresh rendered Gemma
 actioner episode with the same seed and settings. It writes flushed per-step

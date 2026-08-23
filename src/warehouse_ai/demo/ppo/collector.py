@@ -7,12 +7,12 @@ from typing import Any
 import numpy as np
 import torch
 
-from warehouse_ai.demo.ppo.buffer import DirectiveRolloutBuffer
-from warehouse_ai.demo.ppo.environment import DirectiveGymEnv
-from warehouse_ai.demo.ppo.model import DirectivePpoModel
+from warehouse_ai.demo.ppo.buffer import RolloutBuffer
+from warehouse_ai.demo.ppo.environment import GymEnv
+from warehouse_ai.demo.ppo.model import PpoModel
 
 
-def _raw_module(module: Any) -> DirectivePpoModel:
+def _raw_module(module: Any) -> PpoModel:
     return getattr(module, "module", module)
 
 
@@ -31,7 +31,7 @@ def _value_for_observation(
         return float(model(observations, masks).values.item())
 
 
-class DirectiveRolloutCollector:
+class RolloutCollector:
     """Collect one exact on-policy rollout into caller-owned storage."""
 
     def __init__(self) -> None:
@@ -41,8 +41,8 @@ class DirectiveRolloutCollector:
     def collect(
         self,
         module: Any,
-        environment: DirectiveGymEnv,
-        buffer: DirectiveRolloutBuffer,
+        environment: GymEnv,
+        buffer: RolloutBuffer,
         *,
         rollout_steps: int,
         generator: torch.Generator,

@@ -8,12 +8,12 @@ from pathlib import Path
 from typing import Any
 
 from warehouse_ai.demo.artifacts import write_json_atomic
-from warehouse_ai.demo.contracts.directives import DirectiveVocabulary
-from warehouse_ai.demo.contracts.evaluation import DirectiveDemoConfig
+from warehouse_ai.demo.contracts.directives import DirectiveCatalog
+from warehouse_ai.demo.contracts.evaluation import DemoConfig
 from warehouse_ai.demo.contracts.inference import GemmaPreflightReport, ModelHealth
-from warehouse_ai.demo.contracts.ppo import DirectivePpoManifest
+from warehouse_ai.demo.contracts.ppo import PpoManifest
 from warehouse_ai.demo.controllers import ActionValidator
-from warehouse_ai.demo.directives import build_directive_registry
+from warehouse_ai.demo.directives import build_registry
 from warehouse_ai.demo.inference.actioner import GemmaActioner
 from warehouse_ai.demo.inference.llama_cpp import LlamaCppBackend
 from warehouse_ai.demo.inference.preflight_cases import (
@@ -25,7 +25,7 @@ from warehouse_ai.demo.inference.preflight_cases import (
 )
 from warehouse_ai.demo.inference.prompting import GemmaPromptBuilder
 from warehouse_ai.demo.inference.provenance import hardware_provenance, percentile
-from warehouse_ai.demo.ppo.policy import DirectivePpoPolicy
+from warehouse_ai.demo.ppo.policy import PpoPolicy
 from warehouse_ai.env import TarwareEnvWrapper
 
 
@@ -39,27 +39,25 @@ def _resolve(root: Path, path: Path) -> Path:
 
 def _load_policy(
     root: Path,
-    config: DirectiveDemoConfig,
-    vocabulary: DirectiveVocabulary,
-) -> DirectivePpoPolicy:
+    config: DemoConfig,
+    catalog: DirectiveCatalog,
+) -> PpoPolicy:
     manifest_path = _resolve(root, config.ppo_manifest_path)
-    manifest = DirectivePpoManifest.model_validate_json(
+    manifest = PpoManifest.model_validate_json(
         manifest_path.read_text(encoding="utf-8")
     )
-    return DirectivePpoPolicy.load(
-        _resolve(root, config.ppo_checkpoint_path), vocabulary, manifest
-    )
+    return PpoPolicy.load(_resolve(root, config.ppo_checkpoint_path), catalog, manifest)
 
 
-def _measured_request(context, directives, policy, registry, vocabulary, covered):
+def _measured_request(context, directives, policy, registry, catalog, covered):
     request = policy_request(context, policy, registry)
     selected = request.prediction.directive.directive_id
     non_wait = tuple(
         directive_id
         for directive_id in directives
-        if directive_id != vocabulary.wait_directive_id
+        if directive_id != catalog.wait_directive_id
     )
-    if selected == vocabulary.wait_directive_id and non_wait:
+    if selected == catalog.wait_directive_id and non_wait:
         selected = non_wait[0]
     elif len(covered) < 2:
         alternate = next(
@@ -67,25 +65,25 @@ def _measured_request(context, directives, policy, registry, vocabulary, covered
                 directive_id
                 for directive_id in directives
                 if directive_id != selected
-                and vocabulary.by_id(directive_id).behavior_key not in covered
+                and catalog.by_id(directive_id).behavior_key not in covered
             ),
             None,
         )
         if alternate is not None:
             selected = alternate
     if selected != request.prediction.directive.directive_id:
-        request = forced_request(context, policy, vocabulary, selected)
+        request = forced_request(context, policy, catalog, selected)
     return request, selected
 
 
 def run_preflight(
-    config: DirectiveDemoConfig, *, repository_root: Path | None = None
+    config: DemoConfig, *, repository_root: Path | None = None
 ) -> GemmaPreflightReport:
     """Run the configured server gates and write a schema-v2 report."""
     root = (repository_root or _repository_root()).resolve()
-    vocabulary = DirectiveVocabulary.load(_resolve(root, config.vocabulary_path))
-    registry = build_directive_registry(vocabulary)
-    policy = _load_policy(root, config, vocabulary)
+    catalog = DirectiveCatalog.load(_resolve(root, config.vocabulary_path))
+    registry = build_registry(catalog)
+    policy = _load_policy(root, config, catalog)
     backend = LlamaCppBackend(config.inference)
     actioner = GemmaActioner(backend, GemmaPromptBuilder())
     validator = ActionValidator(registry)
@@ -104,7 +102,7 @@ def run_preflight(
         warmup = find_state(
             wrapper,
             registry,
-            vocabulary,
+            catalog,
             seed=config.episode_seed,
             max_steps=config.episode_steps,
             required=1,
@@ -113,7 +111,7 @@ def run_preflight(
             failures.append("no applicable non-wait directive for warm-up")
         else:
             context, directives = warmup
-            request = forced_request(context, policy, vocabulary, directives[0])
+            request = forced_request(context, policy, catalog, directives[0])
             _, warmup_completed, error = timed_action(
                 actioner, validator, request, wrapper
             )
@@ -127,7 +125,7 @@ def run_preflight(
             state = find_state(
                 wrapper,
                 registry,
-                vocabulary,
+                catalog,
                 seed=config.episode_seed + offset,
                 max_steps=config.episode_steps,
                 required=2,
@@ -137,9 +135,9 @@ def run_preflight(
                 continue
             context, directives = state
             request, selected = _measured_request(
-                context, directives, policy, registry, vocabulary, set(classes)
+                context, directives, policy, registry, catalog, set(classes)
             )
-            classes.append(vocabulary.by_id(selected).behavior_key)
+            classes.append(catalog.by_id(selected).behavior_key)
             elapsed, valid, error = timed_action(actioner, validator, request, wrapper)
             latencies.append(elapsed)
             valid_responses += int(valid)
@@ -153,7 +151,7 @@ def run_preflight(
             state = find_state(
                 wrapper,
                 registry,
-                vocabulary,
+                catalog,
                 seed=config.episode_seed + offset,
                 max_steps=config.episode_steps,
                 required=2,
@@ -166,7 +164,7 @@ def run_preflight(
             validities: list[bool] = []
             for directive_id in directives[:2]:
                 sensitivity_pairs += 1
-                request = forced_request(context, policy, vocabulary, directive_id)
+                request = forced_request(context, policy, catalog, directive_id)
                 _, valid, error = timed_action(actioner, validator, request, wrapper)
                 validities.append(valid)
                 sensitivity_valid_pairs += int(valid)

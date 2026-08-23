@@ -8,11 +8,11 @@ from pathlib import Path
 from typing import Any
 
 from warehouse_ai.demo.artifacts import capture_git_state, sha256_file
-from warehouse_ai.demo.contracts.directives import DirectiveVocabulary
-from warehouse_ai.demo.contracts.ppo import DirectivePpoConfig, DirectivePpoManifest
-from warehouse_ai.demo.directives import DirectiveRegistry
-from warehouse_ai.demo.ppo.environment import DirectiveGymEnv
-from warehouse_ai.demo.ppo.policy import DirectivePpoPolicy, Sb3PolicyAdapter
+from warehouse_ai.demo.contracts.directives import DirectiveCatalog
+from warehouse_ai.demo.contracts.ppo import PpoConfig, PpoManifest
+from warehouse_ai.demo.directives import Registry
+from warehouse_ai.demo.ppo.environment import GymEnv
+from warehouse_ai.demo.ppo.policy import PpoPolicy, Sb3PolicyAdapter
 from warehouse_ai.demo.ppo.training import _package_versions, _repository_root
 from warehouse_ai.demo.ppo.validation import (
     evaluate_directive_ppo,
@@ -30,20 +30,20 @@ def _save_model(model: Any, base_path: Path) -> Path:
 
 
 def train_directive_ppo_v1(
-    config: DirectivePpoConfig,
-    vocabulary: DirectiveVocabulary,
-    registry: DirectiveRegistry,
+    config: PpoConfig,
+    catalog: DirectiveCatalog,
+    registry: Registry,
     output_directory: Path,
-) -> DirectivePpoManifest:
+) -> PpoManifest:
     """Reproduce the historical MaskablePPO reference only when requested."""
     from sb3_contrib import MaskablePPO
 
     if config.schema_version != 1:
         raise ValueError("legacy trainer accepts schema version 1 only")
     output_directory.mkdir(parents=True, exist_ok=True)
-    environment = DirectiveGymEnv(
+    environment = GymEnv(
         config.environment_id,
-        vocabulary,
+        catalog,
         registry,
         config.train_seeds,
         config.episode_steps,
@@ -75,14 +75,12 @@ def train_directive_ppo_v1(
             trained += chunk
             with tempfile.TemporaryDirectory(dir=output_directory) as temporary:
                 candidate_path = _save_model(model, Path(temporary) / "candidate")
-                candidate = DirectivePpoPolicy(
+                candidate = PpoPolicy(
                     Sb3PolicyAdapter(model),
-                    vocabulary,
+                    catalog,
                     sha256_file(candidate_path),
                 )
-                summary = evaluate_directive_ppo(
-                    candidate, config, vocabulary, registry
-                )
+                summary = evaluate_directive_ppo(candidate, config, catalog, registry)
                 if is_better_validation(summary, best):
                     checkpoint = _save_model(
                         model, output_directory / "directive-ppo-v1"
@@ -93,10 +91,10 @@ def train_directive_ppo_v1(
     if best is None or best.non_wait_directives_used < 2:
         raise RuntimeError("legacy PPO failed validation coverage")
     git_commit, dirty = capture_git_state(_repository_root())
-    return DirectivePpoManifest(
+    return PpoManifest(
         schema_version=1,
         environment_id=config.environment_id,
-        vocabulary_sha256=vocabulary.digest(),
+        vocabulary_sha256=catalog.digest(),
         behavior_sha256=registry.behavior_digest(),
         checkpoint_sha256=sha256_file(checkpoint),
         train_seeds=config.train_seeds,

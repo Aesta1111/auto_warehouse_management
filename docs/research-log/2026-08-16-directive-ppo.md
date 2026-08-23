@@ -10,7 +10,7 @@ baselines phase or test the Gemma actioner.
 
 ## Hypothesis
 
-The frozen directive vocabulary and strict executor registry will support a
+The frozen directive catalog and strict executor registry will support a
 small MaskablePPO policy that selects at least two non-wait directives on the
 prototype validation seeds without submitting an inapplicable directive.
 
@@ -35,8 +35,8 @@ prototype validation seeds without submitting an inapplicable directive.
 
 ## Method
 
-Added `MaskAwareDiscrete`, `DirectiveSb3Env`, deterministic masked
-`DirectivePpoPolicy` inference, validation summaries, digest-checked manifests,
+Added `MaskAwareDiscrete`, `Sb3Env`, deterministic masked
+`PpoPolicy` inference, validation summaries, digest-checked manifests,
 and the thin `train_directive_ppo.py` command. MaskablePPO used one 64-unit
 policy/value hidden layer, the committed 25,000-timestep budget, and validation
 selection by mean completed tasks followed by mean return. The environment
@@ -97,4 +97,4 @@ The repository-wide basedpyright baseline remains noisy because of six existing
 test annotations; clean those separately before relying on the type-check gate.
 The checkpoint is intentionally ignored by Git, while the small manifest is
 kept as the reproducibility record. A later actioner phase must verify its own
-preflight and must not alter this PPO checkpoint or directive vocabulary.
+preflight and must not alter this PPO checkpoint or directive catalog.

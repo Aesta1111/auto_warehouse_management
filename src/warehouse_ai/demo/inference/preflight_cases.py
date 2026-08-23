@@ -6,31 +6,31 @@ import time
 
 from warehouse_ai.demo.artifacts import canonical_json_bytes, sha256_bytes
 from warehouse_ai.demo.contracts.directives import (
-    DirectiveContext,
-    DirectivePrediction,
-    DirectiveVocabulary,
+    WarehouseContext,
+    PpoPolicyOutput,
+    DirectiveCatalog,
 )
 from warehouse_ai.demo.contracts.inference import ActionerRequest
 from warehouse_ai.demo.controllers import ActionValidator, DecisionFailure
-from warehouse_ai.demo.directives import DirectiveRegistry
+from warehouse_ai.demo.directives import Registry
 from warehouse_ai.demo.inference.actioner import ActionerError, GemmaActioner
 from warehouse_ai.demo.inference.prompting import GemmaPromptBuilder
-from warehouse_ai.demo.ppo.policy import DirectivePpoPolicy
+from warehouse_ai.demo.ppo.policy import PpoPolicy
 from warehouse_ai.env import TarwareEnvWrapper
 
 
 def forced_request(
-    context: DirectiveContext,
-    policy: DirectivePpoPolicy,
-    vocabulary: DirectiveVocabulary,
+    context: WarehouseContext,
+    policy: PpoPolicy,
+    catalog: DirectiveCatalog,
     directive_id: int,
 ) -> ActionerRequest:
-    probabilities = [0.0] * vocabulary.size
+    probabilities = [0.0] * catalog.size
     probabilities[directive_id] = 1.0
-    prediction = DirectivePrediction(
+    prediction = PpoPolicyOutput(
         state_id=context.state_id,
         episode_step=context.observation.step,
-        directive=vocabulary.by_id(directive_id),
+        directive=catalog.by_id(directive_id),
         probabilities=tuple(probabilities),
         value_estimate=0.0,
         policy_latency_ms=0.0,
@@ -40,9 +40,9 @@ def forced_request(
 
 
 def policy_request(
-    context: DirectiveContext,
-    policy: DirectivePpoPolicy,
-    registry: DirectiveRegistry,
+    context: WarehouseContext,
+    policy: PpoPolicy,
+    registry: Registry,
 ) -> ActionerRequest:
     return ActionerRequest(
         context=context,
@@ -51,34 +51,34 @@ def policy_request(
 
 
 def applicable_directives(
-    context: DirectiveContext,
-    registry: DirectiveRegistry,
-    vocabulary: DirectiveVocabulary,
+    context: WarehouseContext,
+    registry: Registry,
+    catalog: DirectiveCatalog,
     *,
     include_wait: bool,
 ) -> tuple[int, ...]:
     return tuple(
         directive_id
         for directive_id, applicable in enumerate(registry.action_mask(context))
-        if applicable and (include_wait or directive_id != vocabulary.wait_directive_id)
+        if applicable and (include_wait or directive_id != catalog.wait_directive_id)
     )
 
 
 def find_state(
     wrapper: TarwareEnvWrapper,
-    registry: DirectiveRegistry,
-    vocabulary: DirectiveVocabulary,
+    registry: Registry,
+    catalog: DirectiveCatalog,
     *,
     seed: int,
     max_steps: int,
     required: int,
     include_wait: bool = False,
-) -> tuple[DirectiveContext, tuple[int, ...]] | None:
+) -> tuple[WarehouseContext, tuple[int, ...]] | None:
     wrapper.reset(seed=seed)
     for _ in range(max_steps):
-        context = DirectiveContext.capture(wrapper)
+        context = WarehouseContext.capture(wrapper)
         directives = applicable_directives(
-            context, registry, vocabulary, include_wait=include_wait
+            context, registry, catalog, include_wait=include_wait
         )
         if len(directives) >= required:
             return context, directives
@@ -101,7 +101,7 @@ def timed_action(
     return time.perf_counter() - started, True, None
 
 
-def prompt_schema_digest(context: DirectiveContext, request: ActionerRequest) -> str:
+def prompt_schema_digest(context: WarehouseContext, request: ActionerRequest) -> str:
     del context
     schema = GemmaPromptBuilder().build(request).response_schema
     return sha256_bytes(canonical_json_bytes(schema))

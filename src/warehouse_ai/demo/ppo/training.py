@@ -13,19 +13,19 @@ import torch
 
 from warehouse_ai.demo.artifacts import capture_git_state, sha256_file
 from warehouse_ai.demo.contracts.ppo import (
-    DirectivePpoConfig,
-    DirectivePpoManifest,
-    DirectivePpoValidationSummary,
+    PpoConfig,
+    PpoManifest,
+    PpoValidationSummary,
 )
-from warehouse_ai.demo.ppo.buffer import DirectiveRolloutBuffer
-from warehouse_ai.demo.ppo.collector import DirectiveRolloutCollector
-from warehouse_ai.demo.ppo.environment import DirectiveGymEnv
+from warehouse_ai.demo.ppo.buffer import RolloutBuffer
+from warehouse_ai.demo.ppo.collector import RolloutCollector
+from warehouse_ai.demo.ppo.environment import GymEnv
 from warehouse_ai.demo.ppo.model import (
-    DirectivePpoModel,
+    PpoModel,
     architecture_digest,
     implementation_digest,
 )
-from warehouse_ai.demo.ppo.policy import DirectivePpoPolicy
+from warehouse_ai.demo.ppo.policy import PpoPolicy
 from warehouse_ai.demo.ppo.validation import (
     evaluate_directive_ppo,
     is_better_validation,
@@ -58,21 +58,21 @@ def _package_versions() -> dict[str, str]:
     return versions
 
 
-class DirectivePpoTrainingLoop:
+class PpoTrainingLoop:
     """On-policy collect/update loop using public Fabric operations."""
 
     def fit(
         self,
-        model: DirectivePpoModel,
-        config: DirectivePpoConfig,
-        training_environment: DirectiveGymEnv,
-        validation_environment: DirectiveGymEnv,
+        model: PpoModel,
+        config: PpoConfig,
+        training_environment: GymEnv,
+        validation_environment: GymEnv,
         output_directory: Path,
-    ) -> DirectivePpoManifest:
+    ) -> PpoManifest:
         if config.schema_version not in (2, 3):
             raise ValueError("repository-owned training requires schema v2 or v3")
-        if training_environment.vocabulary.digest() != (
-            validation_environment.vocabulary.digest()
+        if training_environment.catalog.digest() != (
+            validation_environment.catalog.digest()
         ):
             raise ValueError("training and validation vocabularies differ")
         assert config.max_grad_norm is not None
@@ -94,15 +94,15 @@ class DirectivePpoTrainingLoop:
         observation_shape = training_environment.observation_space.shape
         if observation_shape is None:
             raise RuntimeError("training environment has no fixed observation shape")
-        buffer = DirectiveRolloutBuffer(
+        buffer = RolloutBuffer(
             config.n_steps,
             observation_shape,
-            training_environment.vocabulary.size,
+            training_environment.catalog.size,
         )
-        collector = DirectiveRolloutCollector()
+        collector = RolloutCollector()
         completed_steps = optimizer_steps = selected_steps = selected_updates = 0
         next_validation = VALIDATION_INTERVAL
-        best: DirectivePpoValidationSummary | None = None
+        best: PpoValidationSummary | None = None
         checkpoint = output_directory / f"directive-ppo-v{config.schema_version}.pt"
 
         while completed_steps < config.total_timesteps:
@@ -144,15 +144,15 @@ class DirectivePpoTrainingLoop:
                 or completed_steps >= config.total_timesteps
             ):
                 raw_model = getattr(module, "module", module)
-                candidate = DirectivePpoPolicy.from_module(
+                candidate = PpoPolicy.from_module(
                     raw_model,
-                    training_environment.vocabulary,
+                    training_environment.catalog,
                     "0" * 64,
                 )
                 summary = evaluate_directive_ppo(
                     candidate,
                     config,
-                    validation_environment.vocabulary,
+                    validation_environment.catalog,
                     validation_environment.registry,
                 )
                 if is_better_validation(summary, best):
@@ -182,16 +182,16 @@ class DirectivePpoTrainingLoop:
     @staticmethod
     def _manifest(
         *,
-        config: DirectivePpoConfig,
-        environment: DirectiveGymEnv,
+        config: PpoConfig,
+        environment: GymEnv,
         checkpoint: Path,
         observation_size: int,
         completed_steps: int,
         optimizer_steps: int,
         selected_steps: int,
         selected_updates: int,
-        validation: DirectivePpoValidationSummary,
-    ) -> DirectivePpoManifest:
+        validation: PpoValidationSummary,
+    ) -> PpoManifest:
         git_commit, dirty = capture_git_state(_repository_root())
         hyperparameters: dict[str, Any] = {
             "learning_rate": config.learning_rate,
@@ -213,13 +213,13 @@ class DirectivePpoTrainingLoop:
             "selected_checkpoint_environment_steps": selected_steps,
             "selected_checkpoint_optimizer_steps": selected_updates,
             "observation_size": observation_size,
-            "directive_count": environment.vocabulary.size,
+            "directive_count": environment.catalog.size,
             "hidden_size": HIDDEN_SIZE,
         }
-        return DirectivePpoManifest(
+        return PpoManifest(
             schema_version=config.schema_version,
             environment_id=config.environment_id,
-            vocabulary_sha256=environment.vocabulary.digest(),
+            vocabulary_sha256=environment.catalog.digest(),
             behavior_sha256=environment.registry.behavior_digest(),
             behavior_engine_version=(
                 environment.registry.engine_version
@@ -239,7 +239,7 @@ class DirectivePpoTrainingLoop:
             gae_version=config.gae_version,
             loss_version=config.loss_version,
             architecture_sha256=architecture_digest(
-                observation_size, environment.vocabulary.size, HIDDEN_SIZE
+                observation_size, environment.catalog.size, HIDDEN_SIZE
             ),
             implementation_sha256=implementation_digest(),
             git_commit=git_commit,

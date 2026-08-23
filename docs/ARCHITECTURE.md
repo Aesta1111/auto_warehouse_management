@@ -212,7 +212,7 @@ The rest of the demo follows the same small-boundary layout:
 ```text
 demo/
 |-- contracts/       # Strict records grouped by subsystem
-|-- directives/      # DirectiveRule specifications and one shared engine
+|-- directives/      # Catalog-owned Directive semantics, engine, and live probe
 |-- ppo/             # Model, adapters, rollout storage/math, training, validation
 |-- inference/       # ModelBackend, llama.cpp adapter, prompt, preflight
 |-- evaluation/      # Episode loop, artifact verification, matched runner

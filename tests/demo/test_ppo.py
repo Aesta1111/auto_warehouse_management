@@ -7,14 +7,14 @@ import numpy as np
 from sb3_contrib import MaskablePPO
 
 from warehouse_ai.demo.artifacts import sha256_file
-from warehouse_ai.demo.directives import build_directive_registry
-from warehouse_ai.demo.contracts.directives import DirectiveVocabulary
+from warehouse_ai.demo.directives import build_registry
+from warehouse_ai.demo.contracts.directives import DirectiveCatalog
 from warehouse_ai.demo.contracts.ppo import (
-    DirectivePpoManifest,
-    DirectivePpoValidationSummary,
+    PpoManifest,
+    PpoValidationSummary,
 )
-from warehouse_ai.demo.ppo.environment import DirectiveGymEnv
-from warehouse_ai.demo.ppo.policy import DirectivePpoPolicy
+from warehouse_ai.demo.ppo.environment import GymEnv
+from warehouse_ai.demo.ppo.policy import PpoPolicy
 
 
 ROOT = Path(__file__).parents[2]
@@ -24,11 +24,11 @@ ENVIRONMENT_ID = "tarware-tiny-3agvs-2pickers-partialobs-v1"
 def test_policy_masks_probabilities_and_save_reload_is_deterministic(
     tmp_path: Path,
 ) -> None:
-    vocabulary = DirectiveVocabulary.load(ROOT / "configs/demo/directives-v1.yaml")
-    registry = build_directive_registry(vocabulary)
-    environment = DirectiveGymEnv(
+    catalog = DirectiveCatalog.load(ROOT / "configs/demo/directives-v1.yaml")
+    registry = build_registry(catalog)
+    environment = GymEnv(
         ENVIRONMENT_ID,
-        vocabulary,
+        catalog,
         registry,
         (8100,),
         episode_steps=16,
@@ -47,7 +47,7 @@ def test_policy_masks_probabilities_and_save_reload_is_deterministic(
         checkpoint = tmp_path / "directive-ppo.zip"
         model.save(str(checkpoint))
         digest = sha256_file(checkpoint)
-        validation = DirectivePpoValidationSummary(
+        validation = PpoValidationSummary(
             seeds=(8200,),
             mean_completed_tasks=0.0,
             mean_return=0.0,
@@ -55,10 +55,10 @@ def test_policy_masks_probabilities_and_save_reload_is_deterministic(
             non_wait_directives_used=0,
             inapplicable_directives=0,
         )
-        manifest = DirectivePpoManifest(
+        manifest = PpoManifest(
             schema_version=1,
             environment_id=ENVIRONMENT_ID,
-            vocabulary_sha256=vocabulary.digest(),
+            vocabulary_sha256=catalog.digest(),
             behavior_sha256=registry.behavior_digest(),
             checkpoint_sha256=digest,
             train_seeds=(8100,),
@@ -71,7 +71,7 @@ def test_policy_masks_probabilities_and_save_reload_is_deterministic(
             dirty_worktree=False,
             created_at_utc=datetime.now(timezone.utc),
         )
-        loaded = DirectivePpoPolicy.load(checkpoint, vocabulary, manifest)
+        loaded = PpoPolicy.load(checkpoint, catalog, manifest)
         environment.reset(seed=8100)
         mask = np.asarray([False, True, False, False], dtype=np.bool_)
         first = loaded.predict(environment.context, mask)
@@ -92,11 +92,11 @@ def test_policy_masks_probabilities_and_save_reload_is_deterministic(
 def test_policy_load_rejects_behavior_or_checkpoint_digest_mismatch(
     tmp_path: Path,
 ) -> None:
-    vocabulary = DirectiveVocabulary.load(ROOT / "configs/demo/directives-v1.yaml")
-    registry = build_directive_registry(vocabulary)
-    environment = DirectiveGymEnv(
+    catalog = DirectiveCatalog.load(ROOT / "configs/demo/directives-v1.yaml")
+    registry = build_registry(catalog)
+    environment = GymEnv(
         ENVIRONMENT_ID,
-        vocabulary,
+        catalog,
         registry,
         (8100,),
         episode_steps=8,
@@ -105,7 +105,7 @@ def test_policy_load_rejects_behavior_or_checkpoint_digest_mismatch(
         model = MaskablePPO("MlpPolicy", environment, n_steps=8, batch_size=4, seed=1)
         checkpoint = tmp_path / "directive-ppo.zip"
         model.save(str(checkpoint))
-        validation = DirectivePpoValidationSummary(
+        validation = PpoValidationSummary(
             seeds=(8200,),
             mean_completed_tasks=0.0,
             mean_return=0.0,
@@ -113,10 +113,10 @@ def test_policy_load_rejects_behavior_or_checkpoint_digest_mismatch(
             non_wait_directives_used=0,
             inapplicable_directives=0,
         )
-        manifest = DirectivePpoManifest(
+        manifest = PpoManifest(
             schema_version=1,
             environment_id=ENVIRONMENT_ID,
-            vocabulary_sha256=vocabulary.digest(),
+            vocabulary_sha256=catalog.digest(),
             behavior_sha256=registry.behavior_digest(),
             checkpoint_sha256=sha256_file(checkpoint),
             train_seeds=(8100,),
@@ -131,9 +131,9 @@ def test_policy_load_rejects_behavior_or_checkpoint_digest_mismatch(
         )
         bad_manifest = manifest.model_copy(update={"behavior_sha256": "0" * 64})
         try:
-            DirectivePpoPolicy.load(checkpoint, vocabulary, bad_manifest)
+            PpoPolicy.load(checkpoint, catalog, bad_manifest)
         except ValueError as error:
-            assert "directive rules" in str(error)
+            assert "directive semantics" in str(error)
         else:
             raise AssertionError("behavior digest mismatch was accepted")
     finally:

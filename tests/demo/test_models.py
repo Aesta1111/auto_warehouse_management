@@ -11,15 +11,14 @@ from pydantic import ValidationError
 
 from warehouse_ai.demo.contracts.base import load_yaml_config
 from warehouse_ai.demo.contracts.directives import (
-    DirectiveContext,
-    DirectiveDefinition,
-    DirectiveProbeConfig,
-    DirectiveProbeReport,
-    DirectiveVocabulary,
+    WarehouseContext,
+    ProbeConfig,
+    ProbeReport,
+    DirectiveCatalog,
 )
-from warehouse_ai.demo.contracts.evaluation import DirectiveDemoConfig
+from warehouse_ai.demo.contracts.evaluation import DemoConfig
 from warehouse_ai.demo.contracts.inference import LlamaCppBackendConfig
-from warehouse_ai.demo.contracts.ppo import DirectivePpoConfig
+from warehouse_ai.demo.contracts.ppo import PpoConfig
 from warehouse_ai.domain import ActionMask, AgentObservation, AgentRole, Position
 from warehouse_ai.domain import ShelfObservation, WarehouseObservation
 
@@ -28,28 +27,43 @@ ROOT = Path(__file__).parents[2]
 
 
 def test_committed_versioned_configs_load() -> None:
-    vocabulary = DirectiveVocabulary.load(ROOT / "configs/demo/directives-v1.yaml")
-    probe = load_yaml_config(
-        ROOT / "configs/demo/directive-probe-v1.yaml", DirectiveProbeConfig
-    )
-    ppo = load_yaml_config(
-        ROOT / "configs/demo/directive-ppo-v1.yaml", DirectivePpoConfig
-    )
-    ppo_v2 = load_yaml_config(
-        ROOT / "configs/demo/directive-ppo-v2.yaml", DirectivePpoConfig
-    )
+    catalog = DirectiveCatalog.load(ROOT / "configs/demo/directives-v1.yaml")
+    probe = load_yaml_config(ROOT / "configs/demo/directive-probe-v1.yaml", ProbeConfig)
+    ppo = load_yaml_config(ROOT / "configs/demo/directive-ppo-v1.yaml", PpoConfig)
+    ppo_v2 = load_yaml_config(ROOT / "configs/demo/directive-ppo-v2.yaml", PpoConfig)
     probe_v2 = load_yaml_config(
-        ROOT / "configs/demo/directive-probe-v2.yaml", DirectiveProbeConfig
+        ROOT / "configs/demo/directive-probe-v2.yaml", ProbeConfig
     )
-    ppo_v3 = load_yaml_config(
-        ROOT / "configs/demo/directive-ppo-v3.yaml", DirectivePpoConfig
-    )
-    demo_v2 = load_yaml_config(
-        ROOT / "configs/demo/directive-demo-v2.yaml", DirectiveDemoConfig
-    )
+    ppo_v3 = load_yaml_config(ROOT / "configs/demo/directive-ppo-v3.yaml", PpoConfig)
+    demo_v2 = load_yaml_config(ROOT / "configs/demo/directive-demo-v2.yaml", DemoConfig)
 
-    assert vocabulary.size == 4
-    assert vocabulary.by_id(vocabulary.wait_directive_id).command == "wait"
+    assert catalog.size == 4
+    assert catalog.by_id(catalog.wait_directive_id).command == "wait"
+    assert [item.behavior_key for item in catalog.directives] == [
+        "wait",
+        "service_requested_shelf",
+        "deliver_carried_shelf",
+        "reposition_idle_agent",
+    ]
+    assert all(
+        item.agents is not None
+        and item.destinations is not None
+        and item.effect is not None
+        for item in catalog.directives
+    )
+    assert set(catalog.model_dump().keys()) == {
+        "schema_version",
+        "vocabulary_id",
+        "behavior_version",
+        "wait_directive_id",
+        "directives",
+    }
+    assert set(catalog.model_dump()["directives"][0].keys()) == {
+        "directive_id",
+        "command",
+        "description",
+        "behavior_key",
+    }
     assert probe.vocabulary_path.as_posix() == "configs/demo/directives-v1.yaml"
     assert ppo.train_seeds[-1] == 8115
     assert ppo_v2.backend == "lightning-fabric"
@@ -63,8 +77,8 @@ def test_committed_versioned_configs_load() -> None:
 def test_contract_import_does_not_load_ml_or_transport_frameworks() -> None:
     code = """
 import sys
-from warehouse_ai.demo.contracts.ppo import DirectivePpoConfig
-from warehouse_ai.demo.contracts.evaluation import DirectiveDemoConfig
+from warehouse_ai.demo.contracts.ppo import PpoConfig
+from warehouse_ai.demo.contracts.evaluation import DemoConfig
 forbidden = {'torch', 'lightning', 'stable_baselines3', 'sb3_contrib', 'httpx'}
 assert not forbidden.intersection(sys.modules), sorted(forbidden.intersection(sys.modules))
 """
@@ -78,20 +92,19 @@ assert not forbidden.intersection(sys.modules), sorted(forbidden.intersection(sy
     assert completed.returncode == 0, completed.stderr
 
 
-def test_vocabulary_digest_is_stable_and_ids_are_canonical() -> None:
-    first = DirectiveVocabulary(
-        schema_version=1,
-        vocabulary_id="v1",
-        behavior_version="b1",
-        wait_directive_id=0,
-        directives=tuple(
-            DirectiveDefinition.model_validate(item)
-            for item in (
+def test_catalog_digest_is_stable_and_ids_are_canonical() -> None:
+    first = DirectiveCatalog.model_validate(
+        {
+            "schema_version": 1,
+            "vocabulary_id": "v1",
+            "behavior_version": "b1",
+            "wait_directive_id": 0,
+            "directives": (
                 {
                     "directive_id": 2,
                     "command": "two",
                     "description": "Two",
-                    "behavior_key": "two",
+                    "behavior_key": "deliver_carried_shelf",
                 },
                 {
                     "directive_id": 0,
@@ -103,24 +116,33 @@ def test_vocabulary_digest_is_stable_and_ids_are_canonical() -> None:
                     "directive_id": 3,
                     "command": "three",
                     "description": "Three",
-                    "behavior_key": "three",
+                    "behavior_key": "reposition_idle_agent",
                 },
                 {
                     "directive_id": 1,
                     "command": "one",
                     "description": "One",
-                    "behavior_key": "one",
+                    "behavior_key": "service_requested_shelf",
                 },
-            )
-        ),
+            ),
+        }
     )
     second = first.model_copy(deep=True)
 
     assert tuple(item.directive_id for item in first.directives) == (0, 1, 2, 3)
+    assert all(
+        item.agents is not None
+        and item.destinations is not None
+        and item.effect is not None
+        for item in first.directives
+    )
     assert first.digest() == second.digest()
+    assert "agents" not in first.model_dump_json()
+    assert "destinations" not in first.model_dump_json()
+    assert "effect" not in first.model_dump_json()
 
 
-def test_vocabulary_rejects_duplicate_behavior_keys_and_invalid_wait_id() -> None:
+def test_catalog_rejects_duplicate_behavior_keys_and_invalid_wait_id() -> None:
     definitions: list[dict[str, str | int]] = [
         {
             "directive_id": 0,
@@ -132,55 +154,55 @@ def test_vocabulary_rejects_duplicate_behavior_keys_and_invalid_wait_id() -> Non
             "directive_id": 1,
             "command": "one",
             "description": "One",
-            "behavior_key": "one",
+            "behavior_key": "service_requested_shelf",
         },
         {
             "directive_id": 2,
             "command": "two",
             "description": "Two",
-            "behavior_key": "one",
+            "behavior_key": "service_requested_shelf",
         },
         {
             "directive_id": 3,
             "command": "three",
             "description": "Three",
-            "behavior_key": "three",
+            "behavior_key": "reposition_idle_agent",
         },
     ]
     with pytest.raises(ValidationError, match="behavior keys"):
-        DirectiveVocabulary(
-            schema_version=1,
-            vocabulary_id="v1",
-            behavior_version="b1",
-            wait_directive_id=0,
-            directives=tuple(
-                DirectiveDefinition.model_validate(item) for item in definitions
-            ),
+        DirectiveCatalog.model_validate(
+            {
+                "schema_version": 1,
+                "vocabulary_id": "v1",
+                "behavior_version": "b1",
+                "wait_directive_id": 0,
+                "directives": definitions,
+            }
         )
 
-    definitions[2]["behavior_key"] = "two"
+    definitions[2]["behavior_key"] = "deliver_carried_shelf"
     with pytest.raises(ValidationError, match="wait_directive_id"):
-        DirectiveVocabulary(
-            schema_version=1,
-            vocabulary_id="v1",
-            behavior_version="b1",
-            wait_directive_id=9,
-            directives=tuple(
-                DirectiveDefinition.model_validate(item) for item in definitions
-            ),
+        DirectiveCatalog.model_validate(
+            {
+                "schema_version": 1,
+                "vocabulary_id": "v1",
+                "behavior_version": "b1",
+                "wait_directive_id": 9,
+                "directives": definitions,
+            }
         )
 
 
 def test_configs_reject_absolute_paths_overlapping_seeds_and_bad_urls() -> None:
     with pytest.raises(ValidationError, match="repository-relative"):
-        DirectiveProbeConfig(
+        ProbeConfig(
             schema_version=1,
             environment_id="tiny",
             vocabulary_path=Path.cwd() / "directives.yaml",
         )
 
     with pytest.raises(ValidationError, match="overlap"):
-        DirectivePpoConfig(
+        PpoConfig(
             schema_version=1,
             environment_id="tiny",
             vocabulary_path=Path("configs/demo/directives-v1.yaml"),
@@ -234,8 +256,8 @@ class _ContextWrapper:
 
 
 def test_context_capture_hashes_observation_and_mask_bytes() -> None:
-    first = DirectiveContext.capture(cast(Any, _ContextWrapper()))
-    second = DirectiveContext.capture(cast(Any, _ContextWrapper()))
+    first = WarehouseContext.capture(cast(Any, _ContextWrapper()))
+    second = WarehouseContext.capture(cast(Any, _ContextWrapper()))
 
     assert len(first.state_id) == 64
     assert first.state_id == second.state_id
@@ -244,7 +266,7 @@ def test_context_capture_hashes_observation_and_mask_bytes() -> None:
 
 def test_probe_report_requires_sha256_digests() -> None:
     with pytest.raises(ValidationError, match="SHA-256"):
-        DirectiveProbeReport(
+        ProbeReport(
             schema_version=1,
             environment_id="tiny",
             vocabulary_sha256="bad",

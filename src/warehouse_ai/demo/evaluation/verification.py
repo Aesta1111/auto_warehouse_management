@@ -8,21 +8,21 @@ from typing import Any
 
 from warehouse_ai.demo.artifacts import sha256_file
 from warehouse_ai.demo.contracts.directives import (
-    DirectiveProbeReport,
-    DirectiveVocabulary,
+    ProbeReport,
+    DirectiveCatalog,
 )
-from warehouse_ai.demo.contracts.evaluation import DirectiveDemoConfig
+from warehouse_ai.demo.contracts.evaluation import DemoConfig
 from warehouse_ai.demo.contracts.inference import GemmaPreflightReport
-from warehouse_ai.demo.contracts.ppo import DirectivePpoManifest
-from warehouse_ai.demo.directives import build_directive_registry
-from warehouse_ai.demo.ppo.policy import DirectivePpoPolicy
+from warehouse_ai.demo.contracts.ppo import PpoManifest
+from warehouse_ai.demo.directives import build_registry
+from warehouse_ai.demo.ppo.policy import PpoPolicy
 
 
 @dataclass(frozen=True)
 class VerifiedDemoArtifacts:
-    vocabulary: DirectiveVocabulary
-    manifest: DirectivePpoManifest
-    policy: DirectivePpoPolicy
+    catalog: DirectiveCatalog
+    manifest: PpoManifest
+    policy: PpoPolicy
     probe_digest: str
     preflight_digest: str
 
@@ -41,24 +41,24 @@ def _load_json_model(path: Path, model_type: type[Any]) -> Any:
 
 
 def verify_demo_artifacts(
-    config: DirectiveDemoConfig, repository_root: Path
+    config: DemoConfig, repository_root: Path
 ) -> VerifiedDemoArtifacts:
     vocabulary_path = resolve_path(repository_root, config.vocabulary_path)
     probe_path = resolve_path(repository_root, config.directive_probe_report_path)
     checkpoint_path = resolve_path(repository_root, config.ppo_checkpoint_path)
     manifest_path = resolve_path(repository_root, config.ppo_manifest_path)
     preflight_path = resolve_path(repository_root, config.preflight_report_path)
-    vocabulary = DirectiveVocabulary.load(vocabulary_path)
-    registry = build_directive_registry(vocabulary)
-    manifest = _load_json_model(manifest_path, DirectivePpoManifest)
-    probe = _load_json_model(probe_path, DirectiveProbeReport)
+    catalog = DirectiveCatalog.load(vocabulary_path)
+    registry = build_registry(catalog)
+    manifest = _load_json_model(manifest_path, PpoManifest)
+    probe = _load_json_model(probe_path, ProbeReport)
     preflight = _load_json_model(preflight_path, GemmaPreflightReport)
     if manifest.schema_version != 3 or probe.schema_version != 2:
         raise ValueError("demo v2 requires PPO schema v3 and probe schema v2")
     if manifest.environment_id != config.environment_id:
         raise ValueError("PPO environment does not match demo config")
     behavior_digest = registry.behavior_digest()
-    expected = (vocabulary.digest(), behavior_digest, registry.engine_version)
+    expected = (catalog.digest(), behavior_digest, registry.engine_version)
     actual_manifest = (
         manifest.vocabulary_sha256,
         manifest.behavior_sha256,
@@ -70,7 +70,7 @@ def verify_demo_artifacts(
         probe.behavior_engine_version,
     )
     if actual_manifest != expected or actual_probe != expected:
-        raise ValueError("directive artifact identities do not match current rules")
+        raise ValueError("directive artifact identities do not match current semantics")
     if not probe.passed or probe.environment_id != config.environment_id:
         raise ValueError("directive probe is failed or from another environment")
     if not preflight.passed or preflight.schema_version != 2:
@@ -104,9 +104,9 @@ def verify_demo_artifacts(
     )
     if config.episode_seed in excluded_seeds:
         raise ValueError("demo seed overlaps a prototype seed partition")
-    policy = DirectivePpoPolicy.load(checkpoint_path, vocabulary, manifest)
+    policy = PpoPolicy.load(checkpoint_path, catalog, manifest)
     return VerifiedDemoArtifacts(
-        vocabulary=vocabulary,
+        catalog=catalog,
         manifest=manifest,
         policy=policy,
         probe_digest=sha256_file(probe_path),

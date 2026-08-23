@@ -8,13 +8,12 @@ import numpy as np
 from numpy.typing import NDArray
 
 from warehouse_ai.demo.artifacts import canonical_json_bytes, sha256_bytes
-from warehouse_ai.demo.contracts.directives import DirectiveContext, DirectiveVocabulary
-from warehouse_ai.demo.directives.rules import (
-    RULES,
-    DirectiveRule,
-    agent_is_eligible,
-    eligible_destinations,
+from warehouse_ai.demo.contracts.directives import (
+    Directive,
+    DirectiveCatalog,
+    WarehouseContext,
 )
+from warehouse_ai.demo.directives.rules import agent_is_eligible, eligible_destinations
 from warehouse_ai.domain import AgentRole, JointAction
 from warehouse_ai.env import InvalidJointActionError, TarwareEnvWrapper
 
@@ -22,48 +21,41 @@ from warehouse_ai.env import InvalidJointActionError, TarwareEnvWrapper
 BEHAVIOR_ENGINE_VERSION = "directive-rule-engine-v2"
 
 
-class DirectiveFailure(str, Enum):
+class SemanticsFailure(str, Enum):
     UNKNOWN = "unknown"
     INAPPLICABLE = "inapplicable"
     EXECUTOR = "executor"
     EFFECT = "effect"
 
 
-class DirectiveError(RuntimeError):
-    def __init__(self, code: DirectiveFailure, message: str) -> None:
+class SemanticsError(RuntimeError):
+    def __init__(self, code: SemanticsFailure, message: str) -> None:
         super().__init__(message)
         self.code = code
 
 
-class DirectiveRegistry:
-    """Bind frozen vocabulary IDs to declarative rules."""
+class Registry:
+    """Execute the complete directive semantics owned by one catalog."""
 
-    def __init__(
-        self, vocabulary: DirectiveVocabulary, rules: tuple[DirectiveRule, ...]
-    ) -> None:
-        self.vocabulary = vocabulary
-        self._rules = {rule.behavior_key: rule for rule in rules}
-        expected = {item.behavior_key for item in vocabulary.directives}
-        if set(self._rules) != expected:
-            raise ValueError("rule table does not match directive vocabulary")
+    def __init__(self, catalog: DirectiveCatalog) -> None:
+        self.catalog = catalog
 
     @property
     def engine_version(self) -> str:
         return BEHAVIOR_ENGINE_VERSION
 
-    def _resolve(self, directive_id: int) -> DirectiveRule:
+    def _resolve(self, directive_id: int) -> Directive:
         try:
-            definition = self.vocabulary.by_id(int(directive_id))
-            return self._rules[definition.behavior_key]
+            return self.catalog.by_id(int(directive_id))
         except (KeyError, TypeError, ValueError) as exc:
-            raise DirectiveError(
-                DirectiveFailure.UNKNOWN, f"unknown directive ID {directive_id!r}"
+            raise SemanticsError(
+                SemanticsFailure.UNKNOWN, f"unknown directive ID {directive_id!r}"
             ) from exc
 
     def _legal_candidates(
-        self, rule: DirectiveRule, context: DirectiveContext, row: int
+        self, directive: Directive, context: WarehouseContext, row: int
     ) -> tuple[int, ...]:
-        destinations = eligible_destinations(rule, context)
+        destinations = eligible_destinations(directive, context)
         return tuple(
             int(item)
             for item in np.flatnonzero(context.action_mask.values[row])
@@ -71,16 +63,16 @@ class DirectiveRegistry:
         )
 
     def _proposal(
-        self, rule: DirectiveRule, context: DirectiveContext
+        self, directive: Directive, context: WarehouseContext
     ) -> tuple[int, ...]:
-        if rule.effect.maximum == 0:
+        if directive.effect.maximum == 0:
             return (0,) * len(context.observation.agents)
         result = [0] * len(context.observation.agents)
         selected: set[tuple[AgentRole, int]] = set()
         for row, agent in enumerate(context.observation.agents):
-            if not agent_is_eligible(rule, context, row):
+            if not agent_is_eligible(directive, context, row):
                 continue
-            for destination in self._legal_candidates(rule, context, row):
+            for destination in self._legal_candidates(directive, context, row):
                 pair = (agent.role, destination)
                 if pair not in selected:
                     result[row] = destination
@@ -88,26 +80,23 @@ class DirectiveRegistry:
                     break
         return tuple(result)
 
-    def is_applicable(self, rule: DirectiveRule, context: DirectiveContext) -> bool:
-        if rule.effect.minimum == 0:
+    def is_applicable(self, directive: Directive, context: WarehouseContext) -> bool:
+        if directive.effect.minimum == 0:
             return True
         return any(
-            agent_is_eligible(rule, context, row)
-            and bool(self._legal_candidates(rule, context, row))
+            agent_is_eligible(directive, context, row)
+            and bool(self._legal_candidates(directive, context, row))
             for row in range(len(context.observation.agents))
         )
 
-    def action_mask(self, context: DirectiveContext) -> NDArray[np.bool_]:
+    def action_mask(self, context: WarehouseContext) -> NDArray[np.bool_]:
         mask = np.asarray(
-            [
-                self.is_applicable(self._rules[item.behavior_key], context)
-                for item in self.vocabulary.directives
-            ],
+            [self.is_applicable(item, context) for item in self.catalog.directives],
             dtype=np.bool_,
         )
-        if not bool(mask[self.vocabulary.wait_directive_id]) or not bool(np.any(mask)):
-            raise DirectiveError(
-                DirectiveFailure.INAPPLICABLE,
+        if not bool(mask[self.catalog.wait_directive_id]) or not bool(np.any(mask)):
+            raise SemanticsError(
+                SemanticsFailure.INAPPLICABLE,
                 "wait and at least one directive must be applicable",
             )
         mask.setflags(write=False)
@@ -116,64 +105,61 @@ class DirectiveRegistry:
     def behavior_digest(self) -> str:
         payload = {
             "engine_version": BEHAVIOR_ENGINE_VERSION,
-            "rules": [
-                self._rules[item.behavior_key].descriptor()
-                for item in self.vocabulary.directives
-            ],
+            "rules": [item.descriptor() for item in self.catalog.directives],
         }
         return sha256_bytes(canonical_json_bytes(payload))
 
     def execute(
         self,
         directive_id: int,
-        context: DirectiveContext,
+        context: WarehouseContext,
         wrapper: TarwareEnvWrapper,
     ) -> JointAction:
-        rule = self._resolve(directive_id)
-        if not self.is_applicable(rule, context):
-            raise DirectiveError(
-                DirectiveFailure.INAPPLICABLE,
+        directive = self._resolve(directive_id)
+        if not self.is_applicable(directive, context):
+            raise SemanticsError(
+                SemanticsFailure.INAPPLICABLE,
                 f"directive {directive_id} is not applicable in state {context.state_id}",
             )
         try:
-            action = wrapper.decode(self._proposal(rule, context))
+            action = wrapper.decode(self._proposal(directive, context))
         except (InvalidJointActionError, ValueError, TypeError) as exc:
-            raise DirectiveError(
-                DirectiveFailure.EXECUTOR,
+            raise SemanticsError(
+                SemanticsFailure.EXECUTOR,
                 f"directive {directive_id} proposed an invalid joint action",
             ) from exc
         self.validate_effect(directive_id, context, action)
         return action
 
     def validate_effect(
-        self, directive_id: int, context: DirectiveContext, action: JointAction
+        self, directive_id: int, context: WarehouseContext, action: JointAction
     ) -> None:
-        rule = self._resolve(directive_id)
-        if not self.is_applicable(rule, context):
-            raise DirectiveError(
-                DirectiveFailure.INAPPLICABLE, "directive is inapplicable"
+        directive = self._resolve(directive_id)
+        if not self.is_applicable(directive, context):
+            raise SemanticsError(
+                SemanticsFailure.INAPPLICABLE, "directive is inapplicable"
             )
         expected = tuple(agent.agent_id for agent in context.observation.agents)
         if tuple(item.agent_id for item in action.actions) != expected:
-            raise DirectiveError(
-                DirectiveFailure.EFFECT, "action agents are not canonical"
+            raise SemanticsError(
+                SemanticsFailure.EFFECT, "action agents are not canonical"
             )
-        eligible = eligible_destinations(rule, context)
+        eligible = eligible_destinations(directive, context)
         matches = sum(
             destination != 0
             and destination in eligible
-            and agent_is_eligible(rule, context, row)
+            and agent_is_eligible(directive, context, row)
             and bool(context.action_mask.values[row, destination])
             for row, destination in enumerate(
                 int(item.destination_id) for item in action.actions
             )
         )
-        if not rule.effect.accepts(matches):
-            raise DirectiveError(
-                DirectiveFailure.EFFECT,
-                f"action does not satisfy {rule.behavior_key} effect",
+        if not directive.effect.accepts(matches):
+            raise SemanticsError(
+                SemanticsFailure.EFFECT,
+                f"action does not satisfy {directive.behavior_key} effect",
             )
 
 
-def build_directive_registry(vocabulary: DirectiveVocabulary) -> DirectiveRegistry:
-    return DirectiveRegistry(vocabulary, RULES)
+def build_registry(catalog: DirectiveCatalog) -> Registry:
+    return Registry(catalog)

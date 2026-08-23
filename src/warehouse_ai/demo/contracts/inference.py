@@ -19,7 +19,7 @@ from pydantic import (
 )
 
 from warehouse_ai.demo.contracts.base import DemoModel, NonBlankStr, Sha256, UtcDateTime
-from warehouse_ai.demo.contracts.directives import DirectiveContext, DirectivePrediction
+from warehouse_ai.demo.contracts.directives import WarehouseContext, PpoPolicyOutput
 
 
 class FailureCode(str, Enum):
@@ -34,8 +34,8 @@ class FailureCode(str, Enum):
 
 
 class ActionerRequest(DemoModel):
-    context: DirectiveContext
-    prediction: DirectivePrediction
+    context: WarehouseContext
+    prediction: PpoPolicyOutput
 
     @model_validator(mode="after")
     def validate_prediction_state(self) -> Self:

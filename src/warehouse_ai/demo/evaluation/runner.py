@@ -10,12 +10,12 @@ from warehouse_ai.demo.artifacts import (
     create_run_directory,
     write_json_atomic,
 )
-from warehouse_ai.demo.contracts.evaluation import DemoRunSummary, DirectiveDemoConfig
+from warehouse_ai.demo.contracts.evaluation import DemoRunSummary, DemoConfig
 from warehouse_ai.demo.controllers import (
-    DirectiveExecutorController,
-    DirectiveGemmaController,
+    ExecutorController,
+    GemmaController,
 )
-from warehouse_ai.demo.directives import build_directive_registry
+from warehouse_ai.demo.directives import build_registry
 from warehouse_ai.demo.evaluation.episode import run_episode
 from warehouse_ai.demo.evaluation.verification import (
     resolve_path,
@@ -32,12 +32,12 @@ def _repository_root() -> Path:
 
 
 def run_matched_demo(
-    config: DirectiveDemoConfig, *, repository_root: Path | None = None
+    config: DemoConfig, *, repository_root: Path | None = None
 ) -> DemoRunSummary:
     """Run frozen executor and Gemma strategies on matched fresh episodes."""
     root = (repository_root or _repository_root()).resolve()
     verified = verify_demo_artifacts(config, root)
-    registry = build_directive_registry(verified.vocabulary)
+    registry = build_registry(verified.catalog)
     git_commit, _ = capture_git_state(root)
     run_directory = create_run_directory(
         resolve_path(root, config.output_directory),
@@ -56,7 +56,7 @@ def run_matched_demo(
         executor_wrapper = TarwareEnvWrapper(config.environment_id)
         executor_episode = run_episode(
             executor_wrapper,
-            DirectiveExecutorController(verified.policy, registry),
+            ExecutorController(verified.policy, registry),
             seed=config.episode_seed,
             max_steps=config.episode_steps,
             render=False,
@@ -68,7 +68,7 @@ def run_matched_demo(
         gemma_wrapper = TarwareEnvWrapper(config.environment_id)
         gemma_episode = run_episode(
             gemma_wrapper,
-            DirectiveGemmaController(verified.policy, registry, actioner),
+            GemmaController(verified.policy, registry, actioner),
             seed=config.episode_seed,
             max_steps=config.episode_steps,
             render=config.render_hybrid,
@@ -87,7 +87,7 @@ def run_matched_demo(
         environment_id=config.environment_id,
         seed=config.episode_seed,
         ppo_checkpoint_sha256=verified.manifest.checkpoint_sha256,
-        vocabulary_sha256=verified.vocabulary.digest(),
+        vocabulary_sha256=verified.catalog.digest(),
         directive_probe_report_sha256=verified.probe_digest,
         preflight_report_sha256=verified.preflight_digest,
         executor_episode=executor_episode,

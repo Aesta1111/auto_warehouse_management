@@ -13,14 +13,14 @@ from numpy.typing import NDArray
 
 from warehouse_ai.demo.artifacts import sha256_file
 from warehouse_ai.demo.contracts.directives import (
-    DirectiveContext,
-    DirectivePrediction,
-    DirectiveVocabulary,
+    WarehouseContext,
+    PpoPolicyOutput,
+    DirectiveCatalog,
 )
-from warehouse_ai.demo.contracts.ppo import DirectivePpoManifest
-from warehouse_ai.demo.directives import build_directive_registry
+from warehouse_ai.demo.contracts.ppo import PpoManifest
+from warehouse_ai.demo.directives import build_registry
 from warehouse_ai.demo.ppo.model import (
-    DirectivePpoModel,
+    PpoModel,
     architecture_digest,
     implementation_digest,
 )
@@ -41,11 +41,11 @@ def _boolean(values: dict[str, Any], name: str) -> bool:
 
 
 def _validate_mask(
-    directive_mask: NDArray[np.bool_], vocabulary: DirectiveVocabulary
+    directive_mask: NDArray[np.bool_], catalog: DirectiveCatalog
 ) -> NDArray[np.bool_]:
     mask = np.asarray(directive_mask, dtype=np.bool_).copy()
-    if mask.shape != (vocabulary.size,):
-        raise ValueError("directive mask shape does not match vocabulary")
+    if mask.shape != (catalog.size,):
+        raise ValueError("directive mask shape does not match catalog")
     if not bool(np.any(mask)):
         raise ValueError("directive mask must allow at least one directive")
     return mask
@@ -62,7 +62,7 @@ class PolicyAdapter(Protocol):
 class TorchPolicyAdapter:
     backend = "lightning-fabric"
 
-    def __init__(self, model: DirectivePpoModel) -> None:
+    def __init__(self, model: PpoModel) -> None:
         self.model = model
 
     def predict(
@@ -107,48 +107,48 @@ class Sb3PolicyAdapter:
         )
 
 
-class DirectivePpoPolicy:
+class PpoPolicy:
     """Backend-neutral deterministic facade used by controllers."""
 
     def __init__(
         self,
         adapter: PolicyAdapter,
-        vocabulary: DirectiveVocabulary,
+        catalog: DirectiveCatalog,
         checkpoint_sha256: str,
     ) -> None:
         if len(checkpoint_sha256) != 64:
             raise ValueError("checkpoint_sha256 must be a SHA-256 digest")
         self.adapter = adapter
         self.backend = adapter.backend
-        self.vocabulary = vocabulary
+        self.catalog = catalog
         self.checkpoint_sha256 = checkpoint_sha256.lower()
 
     @classmethod
     def from_module(
         cls,
-        module: DirectivePpoModel,
-        vocabulary: DirectiveVocabulary,
+        module: PpoModel,
+        catalog: DirectiveCatalog,
         checkpoint_sha256: str,
-    ) -> DirectivePpoPolicy:
-        if module.directive_count != vocabulary.size:
-            raise ValueError("PPO directive count does not match vocabulary")
-        return cls(TorchPolicyAdapter(module), vocabulary, checkpoint_sha256)
+    ) -> PpoPolicy:
+        if module.directive_count != catalog.size:
+            raise ValueError("PPO directive count does not match catalog")
+        return cls(TorchPolicyAdapter(module), catalog, checkpoint_sha256)
 
     @classmethod
     def load(
         cls,
         checkpoint: Path,
-        vocabulary: DirectiveVocabulary,
-        manifest: DirectivePpoManifest,
-    ) -> DirectivePpoPolicy:
+        catalog: DirectiveCatalog,
+        manifest: PpoManifest,
+    ) -> PpoPolicy:
         actual_digest = sha256_file(checkpoint)
         if actual_digest != manifest.checkpoint_sha256:
             raise ValueError("PPO checkpoint digest does not match its manifest")
-        if vocabulary.digest() != manifest.vocabulary_sha256:
-            raise ValueError("current vocabulary digest does not match manifest")
-        registry = build_directive_registry(vocabulary)
+        if catalog.digest() != manifest.vocabulary_sha256:
+            raise ValueError("current catalog digest does not match manifest")
+        registry = build_registry(catalog)
         if registry.behavior_digest() != manifest.behavior_sha256:
-            raise ValueError("current directive rules do not match manifest")
+            raise ValueError("current directive semantics do not match manifest")
         if (
             manifest.schema_version == 3
             and registry.engine_version != manifest.behavior_engine_version
@@ -159,9 +159,9 @@ class DirectivePpoPolicy:
             from sb3_contrib import MaskablePPO
 
             model = MaskablePPO.load(str(checkpoint), device="cpu")
-            if int(getattr(model.action_space, "n", -1)) != vocabulary.size:
-                raise ValueError("SB3 action space does not match vocabulary")
-            return cls(Sb3PolicyAdapter(model), vocabulary, actual_digest)
+            if int(getattr(model.action_space, "n", -1)) != catalog.size:
+                raise ValueError("SB3 action space does not match catalog")
+            return cls(Sb3PolicyAdapter(model), catalog, actual_digest)
 
         if manifest.backend != "lightning-fabric":
             raise ValueError("repository-owned checkpoint has the wrong backend")
@@ -175,7 +175,7 @@ class DirectivePpoPolicy:
         )
         if manifest.architecture_sha256 != architecture_digest(*dimensions):
             raise ValueError("PPO architecture digest does not match manifest")
-        module = DirectivePpoModel(
+        module = PpoModel(
             observation_size=dimensions[0],
             directive_count=dimensions[1],
             hidden_size=dimensions[2],
@@ -191,14 +191,14 @@ class DirectivePpoPolicy:
             raise ValueError("PPO checkpoint has no model state dictionary")
         module.load_state_dict(state_dict, strict=True)
         module.eval()
-        return cls.from_module(module, vocabulary, actual_digest)
+        return cls.from_module(module, catalog, actual_digest)
 
     def predict(
         self,
-        context: DirectiveContext,
+        context: WarehouseContext,
         directive_mask: NDArray[np.bool_],
-    ) -> DirectivePrediction:
-        mask = _validate_mask(directive_mask, self.vocabulary)
+    ) -> PpoPolicyOutput:
+        mask = _validate_mask(directive_mask, self.catalog)
         start = time.perf_counter()
         probabilities, value = self.adapter.predict(context.observation.encode(), mask)
         probabilities = np.where(mask, probabilities, 0.0)
@@ -209,10 +209,10 @@ class DirectivePpoPolicy:
         selected_id = int(np.argmax(probabilities))
         if not bool(mask[selected_id]):
             raise RuntimeError("masked PPO selected an inapplicable directive")
-        return DirectivePrediction(
+        return PpoPolicyOutput(
             state_id=context.state_id,
             episode_step=context.observation.step,
-            directive=self.vocabulary.by_id(selected_id),
+            directive=self.catalog.by_id(selected_id),
             probabilities=tuple(float(value) for value in probabilities),
             value_estimate=value,
             policy_latency_ms=(time.perf_counter() - start) * 1000.0,

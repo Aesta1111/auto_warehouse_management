@@ -10,7 +10,7 @@ import subprocess
 from pathlib import Path
 
 from warehouse_ai.demo.contracts.base import load_yaml_config
-from warehouse_ai.demo.contracts.evaluation import DirectiveDemoConfig
+from warehouse_ai.demo.contracts.evaluation import DemoConfig
 from warehouse_ai.demo.evaluation.runner import run_matched_demo
 
 
@@ -92,7 +92,7 @@ def main() -> int:
         return _start_gemma(args, root)
 
     config_path = args.config if args.config.is_absolute() else root / args.config
-    config = load_yaml_config(config_path, DirectiveDemoConfig)
+    config = load_yaml_config(config_path, DemoConfig)
     summary = run_matched_demo(config, repository_root=root)
     print(json.dumps(summary.model_dump(mode="json"), indent=2, sort_keys=True))
     print(f"output_directory: {root / summary.output_directory}")

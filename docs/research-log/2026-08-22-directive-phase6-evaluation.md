@@ -30,10 +30,10 @@ Not applicable for this implementation and artifact-boundary investigation.
 Phase 6 adds immutable `EpisodeResult` and `DemoRunSummary` records, an
 `evaluation.py` episode loop, append-and-flush JSONL writing, and a
 composition-only `run_directive_demo.py` command. The runner verifies the
-vocabulary, directive behavior, probe report, preflight report, PPO manifest,
+catalog, directive behavior, probe report, preflight report, PPO manifest,
 checkpoint digest, model identity, and seed exclusions before constructing a
 TA-RWARE wrapper. It then creates fresh wrappers for the deterministic
-executor and Gemma episodes while holding the seed, environment, vocabulary,
+executor and Gemma episodes while holding the seed, environment, catalog,
 and PPO policy fixed.
 
 The metrics use the compatibility-spike keys `shelf_deliveries`, `clashes`,

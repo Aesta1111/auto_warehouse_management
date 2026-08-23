@@ -6,7 +6,7 @@ from collections import defaultdict
 from typing import Any
 
 from warehouse_ai.demo.artifacts import canonical_json_text
-from warehouse_ai.demo.contracts.directives import DirectiveContext
+from warehouse_ai.demo.contracts.directives import WarehouseContext
 from warehouse_ai.demo.contracts.inference import (
     ActionerRequest,
     ChatMessage,
@@ -44,7 +44,7 @@ class GemmaPromptBuilder:
     """Render proven wording from a compact canonical state representation."""
 
     def state_payload(
-        self, context: DirectiveContext, *, directive: dict[str, Any] | None = None
+        self, context: WarehouseContext, *, directive: dict[str, Any] | None = None
     ) -> dict[str, Any]:
         observation = context.observation
         role_groups: defaultdict[str, list[int]] = defaultdict(list)
@@ -153,10 +153,10 @@ class GemmaPromptBuilder:
             response_schema=self.response_schema(request.context),
         )
 
-    def serialize_state(self, context: DirectiveContext) -> str:
+    def serialize_state(self, context: WarehouseContext) -> str:
         return canonical_json_text(self.state_payload(context))
 
-    def response_schema(self, context: DirectiveContext) -> dict[str, Any]:
+    def response_schema(self, context: WarehouseContext) -> dict[str, Any]:
         agent_count = len(context.observation.agents)
         return {
             "type": "object",

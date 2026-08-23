@@ -2,9 +2,9 @@
 
 ## Objective
 
-Freeze the isolated directive-demo vocabulary and verify that its deterministic
+Freeze the isolated directive-demo catalog and verify that its deterministic
 applicability, executors, and action-effect validators produce strict TA-RWARE
-joint actions. This investigation can change the prototype vocabulary before
+joint actions. This investigation can change the prototype catalog before
 its later PPO phase; it does not change the main research phase gates.
 
 ## Hypothesis
@@ -27,7 +27,7 @@ no executor requiring hidden simulator state.
 
 ## Method
 
-Implemented `DirectiveBehavior`, `DirectiveRegistry`, explicit semantic error
+Implemented `DirectiveBehavior`, `Registry`, explicit semantic error
 types, and one reviewed behavior class per frozen YAML command. The executors
 use canonical agent order, lowest legal destination ID, same-role duplicate
 avoidance, and the existing `TarwareEnvWrapper.decode()` validator. Requested

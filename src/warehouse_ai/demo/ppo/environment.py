@@ -9,8 +9,8 @@ import gymnasium as gym
 import numpy as np
 from numpy.typing import NDArray
 
-from warehouse_ai.demo.contracts.directives import DirectiveContext, DirectiveVocabulary
-from warehouse_ai.demo.directives import DirectiveRegistry
+from warehouse_ai.demo.contracts.directives import WarehouseContext, DirectiveCatalog
+from warehouse_ai.demo.directives import Registry
 from warehouse_ai.env import MaskAwareDiscrete, TarwareEnvWrapper
 
 
@@ -23,7 +23,7 @@ def _coerce_scalar_action(action: int | NDArray[np.int64]) -> int:
     return int(value.item())
 
 
-class DirectiveGymEnv(gym.Env[NDArray[np.float32], Any]):
+class GymEnv(gym.Env[NDArray[np.float32], Any]):
     """Translate one scalar directive to a validated project joint action."""
 
     metadata = {"render_modes": ["human"]}
@@ -31,8 +31,8 @@ class DirectiveGymEnv(gym.Env[NDArray[np.float32], Any]):
     def __init__(
         self,
         environment_id: str,
-        vocabulary: DirectiveVocabulary,
-        registry: DirectiveRegistry,
+        catalog: DirectiveCatalog,
+        registry: Registry,
         episode_seeds: Sequence[int],
         episode_steps: int = 500,
     ) -> None:
@@ -40,10 +40,10 @@ class DirectiveGymEnv(gym.Env[NDArray[np.float32], Any]):
         seeds = tuple(int(seed) for seed in episode_seeds)
         if not seeds or episode_steps <= 0:
             raise ValueError("episode seeds and a positive step count are required")
-        if registry.vocabulary.digest() != vocabulary.digest():
-            raise ValueError("registry vocabulary does not match the vocabulary")
+        if registry.catalog.digest() != catalog.digest():
+            raise ValueError("registry catalog does not match the catalog")
         self.environment_id = environment_id
-        self.vocabulary = vocabulary
+        self.catalog = catalog
         self.registry = registry
         self.episode_seeds = seeds
         self.episode_steps = int(episode_steps)
@@ -57,11 +57,11 @@ class DirectiveGymEnv(gym.Env[NDArray[np.float32], Any]):
             shape=initial.encoded_shape,
             dtype=np.float32,
         )
-        self.action_space = MaskAwareDiscrete(vocabulary.size, self.action_masks)
+        self.action_space = MaskAwareDiscrete(catalog.size, self.action_masks)
 
     @property
-    def context(self) -> DirectiveContext:
-        return DirectiveContext.capture(self.wrapper)
+    def context(self) -> WarehouseContext:
+        return WarehouseContext.capture(self.wrapper)
 
     def action_masks(self) -> NDArray[np.bool_]:
         return self.registry.action_mask(self.context).copy()
@@ -101,7 +101,7 @@ class DirectiveGymEnv(gym.Env[NDArray[np.float32], Any]):
         info.update(
             {
                 "directive_id": directive_id,
-                "directive_command": self.vocabulary.by_id(directive_id).command,
+                "directive_command": self.catalog.by_id(directive_id).command,
                 "executed_destinations": [
                     int(item.destination_id) for item in concrete.actions
                 ],
@@ -125,4 +125,5 @@ class DirectiveGymEnv(gym.Env[NDArray[np.float32], Any]):
         self.wrapper.close()
 
 
-DirectiveSb3Env = DirectiveGymEnv
+class Sb3Env(GymEnv):
+    """Stable-Baselines3-facing environment with the shared Gym behavior."""

@@ -4,10 +4,10 @@ import numpy as np
 import pytest
 import torch
 
-from warehouse_ai.demo.ppo.buffer import DirectiveRolloutBuffer
+from warehouse_ai.demo.ppo.buffer import RolloutBuffer
 
 
-def _add(buffer: DirectiveRolloutBuffer, index: int) -> None:
+def _add(buffer: RolloutBuffer, index: int) -> None:
     mask = np.asarray([index % 2 == 0, True, index % 2 == 1], dtype=np.bool_)
     buffer.add(
         observation=np.asarray([index, index + 0.5], dtype=np.float32),
@@ -23,7 +23,7 @@ def _add(buffer: DirectiveRolloutBuffer, index: int) -> None:
 
 
 def test_buffer_lifecycle_dtypes_masks_and_seeded_minibatch_coverage() -> None:
-    buffer = DirectiveRolloutBuffer(4, (2,), 3)
+    buffer = RolloutBuffer(4, (2,), 3)
     assert buffer.observations.dtype == np.float32
     assert buffer.action_masks.dtype == np.bool_
     assert buffer.actions.dtype == np.int64
@@ -57,7 +57,7 @@ def test_buffer_lifecycle_dtypes_masks_and_seeded_minibatch_coverage() -> None:
 
 
 def test_buffer_rejects_partial_finalization_and_wrong_mask() -> None:
-    buffer = DirectiveRolloutBuffer(2, (2,), 3)
+    buffer = RolloutBuffer(2, (2,), 3)
     _add(buffer, 0)
     with pytest.raises(RuntimeError, match="partially"):
         buffer.finalize(gamma=0.99, gae_lambda=0.95)
@@ -76,7 +76,7 @@ def test_buffer_rejects_partial_finalization_and_wrong_mask() -> None:
 
 
 def test_simultaneous_termination_and_time_limit_uses_termination_semantics() -> None:
-    buffer = DirectiveRolloutBuffer(1, (2,), 2)
+    buffer = RolloutBuffer(1, (2,), 2)
     buffer.add(
         observation=np.zeros(2, dtype=np.float32),
         action_mask=np.ones(2, dtype=np.bool_),

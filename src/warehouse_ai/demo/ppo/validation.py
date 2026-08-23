@@ -6,14 +6,14 @@ from typing import Any
 
 import numpy as np
 
-from warehouse_ai.demo.contracts.directives import DirectiveVocabulary
+from warehouse_ai.demo.contracts.directives import DirectiveCatalog
 from warehouse_ai.demo.contracts.ppo import (
-    DirectivePpoConfig,
-    DirectivePpoValidationSummary,
+    PpoConfig,
+    PpoValidationSummary,
 )
-from warehouse_ai.demo.directives import DirectiveRegistry
-from warehouse_ai.demo.ppo.environment import DirectiveGymEnv
-from warehouse_ai.demo.ppo.policy import DirectivePpoPolicy
+from warehouse_ai.demo.directives import Registry
+from warehouse_ai.demo.ppo.environment import GymEnv
+from warehouse_ai.demo.ppo.policy import PpoPolicy
 
 
 def _completed_tasks(info: dict[str, Any]) -> int:
@@ -27,18 +27,18 @@ def _entropy(probabilities: tuple[float, ...]) -> float:
 
 
 def evaluate_directive_ppo(
-    policy: DirectivePpoPolicy,
-    config: DirectivePpoConfig,
-    vocabulary: DirectiveVocabulary,
-    registry: DirectiveRegistry,
-) -> DirectivePpoValidationSummary:
-    if policy.vocabulary.digest() != vocabulary.digest():
-        raise ValueError("policy vocabulary does not match evaluation vocabulary")
-    if registry.vocabulary.digest() != vocabulary.digest():
-        raise ValueError("registry vocabulary does not match evaluation vocabulary")
-    environment = DirectiveGymEnv(
+    policy: PpoPolicy,
+    config: PpoConfig,
+    catalog: DirectiveCatalog,
+    registry: Registry,
+) -> PpoValidationSummary:
+    if policy.catalog.digest() != catalog.digest():
+        raise ValueError("policy catalog does not match evaluation catalog")
+    if registry.catalog.digest() != catalog.digest():
+        raise ValueError("registry catalog does not match evaluation catalog")
+    environment = GymEnv(
         config.environment_id,
-        vocabulary,
+        catalog,
         registry,
         config.validation_seeds,
         config.episode_steps,
@@ -63,7 +63,7 @@ def evaluate_directive_ppo(
                 directive_id = prediction.directive.directive_id
                 if not bool(mask[directive_id]):
                     inapplicable += 1
-                if directive_id != vocabulary.wait_directive_id:
+                if directive_id != catalog.wait_directive_id:
                     selected_non_wait.add(directive_id)
                 command = prediction.directive.command
                 counts[command] = counts.get(command, 0) + 1
@@ -78,7 +78,7 @@ def evaluate_directive_ppo(
     finally:
         environment.close()
     non_wait_count = len(selected_non_wait)
-    return DirectivePpoValidationSummary(
+    return PpoValidationSummary(
         seeds=config.validation_seeds,
         mean_completed_tasks=float(np.mean(completed)),
         mean_return=float(np.mean(returns)),
@@ -92,8 +92,8 @@ def evaluate_directive_ppo(
 
 
 def is_better_validation(
-    candidate: DirectivePpoValidationSummary,
-    incumbent: DirectivePpoValidationSummary | None,
+    candidate: PpoValidationSummary,
+    incumbent: PpoValidationSummary | None,
 ) -> bool:
     if incumbent is None:
         return True

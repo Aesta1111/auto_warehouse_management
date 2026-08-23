@@ -41,7 +41,7 @@ def implementation_digest() -> str:
     return hashlib.sha256(canonical_json_bytes(payload)).hexdigest()
 
 
-class DirectivePpoModel(nn.Module):
+class PpoModel(nn.Module):
     """Separate policy/value paths with explicit valid-action masking."""
 
     def __init__(
@@ -151,6 +151,3 @@ class DirectivePpoModel(nn.Module):
 
     def make_optimizer(self) -> Optimizer:
         return Adam(self.parameters(), lr=self.learning_rate)
-
-
-DirectivePpoModule = DirectivePpoModel

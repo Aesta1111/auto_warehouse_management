@@ -6,20 +6,20 @@ from typing import Any, cast
 import numpy as np
 
 from warehouse_ai.demo.contracts.directives import (
-    DirectiveContext,
-    DirectivePrediction,
-    DirectiveVocabulary,
+    WarehouseContext,
+    PpoPolicyOutput,
+    DirectiveCatalog,
 )
 from warehouse_ai.demo.contracts.evaluation import DemoDecision
 from warehouse_ai.demo.contracts.inference import ActionerRequest, FailureCode
 from warehouse_ai.demo.controllers import (
-    DirectiveExecutorController,
-    DirectiveGemmaController,
+    ExecutorController,
+    GemmaController,
 )
-from warehouse_ai.demo.directives import build_directive_registry
+from warehouse_ai.demo.directives import build_registry
 from warehouse_ai.demo.evaluation.episode import run_episode
 from warehouse_ai.demo.inference.actioner import Actioner, ActionerError
-from warehouse_ai.demo.ppo.policy import DirectivePpoPolicy
+from warehouse_ai.demo.ppo.policy import PpoPolicy
 from warehouse_ai.domain import JointAction
 from warehouse_ai.env import TarwareEnvWrapper
 
@@ -29,20 +29,18 @@ ENVIRONMENT_ID = "tarware-tiny-3agvs-2pickers-partialobs-v1"
 
 
 class FixedPolicy:
-    def __init__(self, vocabulary: DirectiveVocabulary, selected: int) -> None:
-        self.vocabulary = vocabulary
+    def __init__(self, catalog: DirectiveCatalog, selected: int) -> None:
+        self.catalog = catalog
         self.selected = selected
 
-    def predict(
-        self, context: DirectiveContext, mask: np.ndarray
-    ) -> DirectivePrediction:
+    def predict(self, context: WarehouseContext, mask: np.ndarray) -> PpoPolicyOutput:
         selected = self.selected if bool(mask[self.selected]) else 0
-        probabilities = [0.0] * self.vocabulary.size
+        probabilities = [0.0] * self.catalog.size
         probabilities[selected] = 1.0
-        return DirectivePrediction(
+        return PpoPolicyOutput(
             state_id=context.state_id,
             episode_step=context.observation.step,
-            directive=self.vocabulary.by_id(selected),
+            directive=self.catalog.by_id(selected),
             probabilities=tuple(probabilities),
             value_estimate=0.0,
             policy_latency_ms=0.0,
@@ -59,22 +57,22 @@ class FailingActioner:
         raise ActionerError(self.code, "injected failure")
 
 
-def _vocabulary() -> DirectiveVocabulary:
-    return DirectiveVocabulary.load(ROOT / "configs/demo/directives-v1.yaml")
+def _catalog() -> DirectiveCatalog:
+    return DirectiveCatalog.load(ROOT / "configs/demo/directives-v1.yaml")
 
 
-def _policy(vocabulary: DirectiveVocabulary, selected: int) -> DirectivePpoPolicy:
-    return cast(DirectivePpoPolicy, FixedPolicy(vocabulary, selected))
+def _policy(catalog: DirectiveCatalog, selected: int) -> PpoPolicy:
+    return cast(PpoPolicy, FixedPolicy(catalog, selected))
 
 
 def test_episode_flushes_schema_v2_records(tmp_path: Path) -> None:
-    vocabulary = _vocabulary()
-    registry = build_directive_registry(vocabulary)
+    catalog = _catalog()
+    registry = build_registry(catalog)
     wrapper = TarwareEnvWrapper(ENVIRONMENT_ID)
     try:
         result = run_episode(
             wrapper,
-            DirectiveExecutorController(_policy(vocabulary, 1), registry),
+            ExecutorController(_policy(catalog, 1), registry),
             seed=0,
             max_steps=3,
             render=False,
@@ -92,8 +90,8 @@ def test_episode_flushes_schema_v2_records(tmp_path: Path) -> None:
 def test_episode_counts_structured_failures_without_parsing_exception_names(
     tmp_path: Path,
 ) -> None:
-    vocabulary = _vocabulary()
-    registry = build_directive_registry(vocabulary)
+    catalog = _catalog()
+    registry = build_registry(catalog)
     for code, invalid, effect in (
         (FailureCode.MALFORMED_RESPONSE, 1, 0),
         (FailureCode.INVALID_ACTION, 1, 0),
@@ -102,8 +100,8 @@ def test_episode_counts_structured_failures_without_parsing_exception_names(
     ):
         wrapper = TarwareEnvWrapper(ENVIRONMENT_ID)
         try:
-            controller = DirectiveGemmaController(
-                _policy(vocabulary, 1),
+            controller = GemmaController(
+                _policy(catalog, 1),
                 registry,
                 cast(Actioner, FailingActioner(code)),
             )
@@ -173,11 +171,11 @@ class TwoStepWrapper:
 
 
 def test_episode_waits_for_all_agents_to_terminate(tmp_path: Path) -> None:
-    vocabulary = _vocabulary()
-    prediction = DirectivePrediction(
+    catalog = _catalog()
+    prediction = PpoPolicyOutput(
         state_id="state",
         episode_step=0,
-        directive=vocabulary.by_id(0),
+        directive=catalog.by_id(0),
         probabilities=(1.0, 0.0, 0.0, 0.0),
         value_estimate=0.0,
         policy_latency_ms=0.0,

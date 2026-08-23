@@ -1,13 +1,15 @@
-"""Table-driven directive specifications."""
+"""Directive semantic selectors and the private behavior-key factory."""
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING
 
-from warehouse_ai.demo.contracts.directives import DirectiveContext
 from warehouse_ai.domain import AgentRole
+
+if TYPE_CHECKING:
+    from warehouse_ai.demo.contracts.directives import Directive, WarehouseContext
 
 
 class AgentSelector(str, Enum):
@@ -34,70 +36,62 @@ class EffectCardinality:
         )
 
 
-@dataclass(frozen=True)
-class DirectiveRule:
-    """Stable semantic description for one vocabulary behavior key."""
-
-    behavior_key: str
-    agents: AgentSelector
-    destinations: DestinationSelector
-    effect: EffectCardinality
-
-    def descriptor(self) -> dict[str, Any]:
-        return asdict(self)
-
-
-RULES: tuple[DirectiveRule, ...] = (
-    DirectiveRule(
-        "wait",
-        AgentSelector.ANY_IDLE,
-        DestinationSelector.NONE,
-        EffectCardinality(0, 0),
-    ),
-    DirectiveRule(
-        "service_requested_shelf",
-        AgentSelector.ANY_IDLE,
-        DestinationSelector.REQUESTED_SHELVES,
-        EffectCardinality(1),
-    ),
-    DirectiveRule(
-        "deliver_carried_shelf",
-        AgentSelector.CARRYING_AGV,
-        DestinationSelector.GOALS,
-        EffectCardinality(1),
-    ),
-    DirectiveRule(
-        "reposition_idle_agent",
-        AgentSelector.NON_CARRYING_IDLE,
-        DestinationSelector.NON_REQUESTED,
-        EffectCardinality(1),
-    ),
-)
+def _semantics_for_behavior_key(
+    behavior_key: str,
+) -> tuple[AgentSelector, DestinationSelector, EffectCardinality]:
+    """Return the closed executable semantics for one YAML behavior key."""
+    if behavior_key == "wait":
+        return (
+            AgentSelector.ANY_IDLE,
+            DestinationSelector.NONE,
+            EffectCardinality(0, 0),
+        )
+    if behavior_key == "service_requested_shelf":
+        return (
+            AgentSelector.ANY_IDLE,
+            DestinationSelector.REQUESTED_SHELVES,
+            EffectCardinality(1),
+        )
+    if behavior_key == "deliver_carried_shelf":
+        return (
+            AgentSelector.CARRYING_AGV,
+            DestinationSelector.GOALS,
+            EffectCardinality(1),
+        )
+    if behavior_key == "reposition_idle_agent":
+        return (
+            AgentSelector.NON_CARRYING_IDLE,
+            DestinationSelector.NON_REQUESTED,
+            EffectCardinality(1),
+        )
+    raise ValueError(f"unknown directive behavior key {behavior_key!r}")
 
 
 def eligible_destinations(
-    rule: DirectiveRule, context: DirectiveContext
+    directive: Directive, context: WarehouseContext
 ) -> frozenset[int]:
-    if rule.destinations is DestinationSelector.NONE:
+    if directive.destinations is DestinationSelector.NONE:
         return frozenset()
-    if rule.destinations is DestinationSelector.GOALS:
+    if directive.destinations is DestinationSelector.GOALS:
         return frozenset(int(item) for item in context.observation.goal_destination_ids)
     requested = frozenset(
         int(shelf.destination_id)
         for shelf in context.observation.shelves
         if shelf.requested
     )
-    if rule.destinations is DestinationSelector.REQUESTED_SHELVES:
+    if directive.destinations is DestinationSelector.REQUESTED_SHELVES:
         return requested
     return frozenset(range(1, context.action_mask.destination_count)) - requested
 
 
-def agent_is_eligible(rule: DirectiveRule, context: DirectiveContext, row: int) -> bool:
+def agent_is_eligible(
+    directive: Directive, context: WarehouseContext, row: int
+) -> bool:
     agent = context.observation.agents[row]
     if agent.busy:
         return False
-    if rule.agents is AgentSelector.CARRYING_AGV:
+    if directive.agents is AgentSelector.CARRYING_AGV:
         return agent.role is AgentRole.AGV and agent.carrying_shelf
-    if rule.agents is AgentSelector.NON_CARRYING_IDLE:
+    if directive.agents is AgentSelector.NON_CARRYING_IDLE:
         return not agent.carrying_shelf
     return True

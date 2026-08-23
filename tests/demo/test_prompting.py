@@ -8,9 +8,9 @@ import pytest
 from pydantic import ValidationError
 
 from warehouse_ai.demo.contracts.directives import (
-    DirectiveContext,
-    DirectivePrediction,
-    DirectiveVocabulary,
+    WarehouseContext,
+    PpoPolicyOutput,
+    DirectiveCatalog,
 )
 from warehouse_ai.demo.contracts.inference import (
     ActionerRequest,
@@ -25,8 +25,8 @@ ENVIRONMENT_ID = "tarware-tiny-3agvs-2pickers-partialobs-v1"
 
 
 @pytest.fixture
-def vocabulary() -> DirectiveVocabulary:
-    return DirectiveVocabulary.load(ROOT / "configs/demo/directives-v1.yaml")
+def catalog() -> DirectiveCatalog:
+    return DirectiveCatalog.load(ROOT / "configs/demo/directives-v1.yaml")
 
 
 @pytest.fixture
@@ -39,14 +39,12 @@ def wrapped_env():
         wrapper.close()
 
 
-def _request(
-    wrapper: TarwareEnvWrapper, vocabulary: DirectiveVocabulary
-) -> ActionerRequest:
-    context = DirectiveContext.capture(wrapper)
-    prediction = DirectivePrediction(
+def _request(wrapper: TarwareEnvWrapper, catalog: DirectiveCatalog) -> ActionerRequest:
+    context = WarehouseContext.capture(wrapper)
+    prediction = PpoPolicyOutput(
         state_id=context.state_id,
         episode_step=context.observation.step,
-        directive=vocabulary.by_id(1),
+        directive=catalog.by_id(1),
         probabilities=(0.0, 1.0, 0.0, 0.0),
         value_estimate=0.0,
         policy_latency_ms=0.0,
@@ -56,9 +54,9 @@ def _request(
 
 
 def test_prompt_and_schema_are_deterministic_and_state_only(
-    vocabulary: DirectiveVocabulary, wrapped_env: TarwareEnvWrapper
+    catalog: DirectiveCatalog, wrapped_env: TarwareEnvWrapper
 ) -> None:
-    request = _request(wrapped_env, vocabulary)
+    request = _request(wrapped_env, catalog)
     builder = GemmaPromptBuilder()
 
     first = builder.build(request)
@@ -106,9 +104,9 @@ def test_prompt_and_schema_are_deterministic_and_state_only(
 
 
 def test_actioner_records_reject_mismatched_request_state(
-    vocabulary: DirectiveVocabulary, wrapped_env: TarwareEnvWrapper
+    catalog: DirectiveCatalog, wrapped_env: TarwareEnvWrapper
 ) -> None:
-    request = _request(wrapped_env, vocabulary)
+    request = _request(wrapped_env, catalog)
     with pytest.raises(ValidationError, match="states differ"):
         ActionerRequest(
             context=request.context,

@@ -6,8 +6,8 @@ from dataclasses import dataclass
 from typing import Literal, Protocol
 
 from warehouse_ai.demo.contracts.directives import (
-    DirectiveContext,
-    DirectivePrediction,
+    WarehouseContext,
+    PpoPolicyOutput,
 )
 from warehouse_ai.demo.contracts.evaluation import DemoDecision
 from warehouse_ai.demo.contracts.inference import (
@@ -15,9 +15,9 @@ from warehouse_ai.demo.contracts.inference import (
     ActionerResult,
     FailureCode,
 )
-from warehouse_ai.demo.directives import DirectiveError, DirectiveRegistry
+from warehouse_ai.demo.directives import SemanticsError, Registry
 from warehouse_ai.demo.inference.actioner import Actioner, ActionerError
-from warehouse_ai.demo.ppo.policy import DirectivePpoPolicy
+from warehouse_ai.demo.ppo.policy import PpoPolicy
 from warehouse_ai.domain import JointAction
 from warehouse_ai.env import InvalidJointActionError, TarwareEnvWrapper
 
@@ -46,7 +46,7 @@ class DecisionFailure(RuntimeError):
 class ActionValidator:
     """Convert one untrusted destination vector into one trusted action."""
 
-    def __init__(self, registry: DirectiveRegistry) -> None:
+    def __init__(self, registry: Registry) -> None:
         self.registry = registry
 
     def validate(
@@ -55,7 +55,7 @@ class ActionValidator:
         result: ActionerResult,
         wrapper: TarwareEnvWrapper,
     ) -> JointAction:
-        current = DirectiveContext.capture(wrapper)
+        current = WarehouseContext.capture(wrapper)
         if current.state_id != request.context.state_id:
             raise DecisionFailure(
                 FailureCode.STALE_STATE,
@@ -94,7 +94,7 @@ class ActionValidator:
                 current,
                 action,
             )
-        except DirectiveError as exc:
+        except SemanticsError as exc:
             raise DecisionFailure(
                 FailureCode.EFFECT_VIOLATION,
                 "model action violates the selected directive effect",
@@ -114,20 +114,20 @@ class StrategyDecision:
 class ActionStrategy(Protocol):
     def decide(
         self,
-        context: DirectiveContext,
-        prediction: DirectivePrediction,
+        context: WarehouseContext,
+        prediction: PpoPolicyOutput,
         wrapper: TarwareEnvWrapper,
     ) -> StrategyDecision: ...
 
 
 class ExecutorStrategy:
-    def __init__(self, registry: DirectiveRegistry) -> None:
+    def __init__(self, registry: Registry) -> None:
         self.registry = registry
 
     def decide(
         self,
-        context: DirectiveContext,
-        prediction: DirectivePrediction,
+        context: WarehouseContext,
+        prediction: PpoPolicyOutput,
         wrapper: TarwareEnvWrapper,
     ) -> StrategyDecision:
         try:
@@ -147,7 +147,7 @@ class ExecutorStrategy:
 
 
 class GemmaStrategy:
-    def __init__(self, registry: DirectiveRegistry, actioner: Actioner) -> None:
+    def __init__(self, registry: Registry, actioner: Actioner) -> None:
         self.registry = registry
         self.actioner = actioner
         self.validator = ActionValidator(registry)
@@ -155,14 +155,11 @@ class GemmaStrategy:
 
     def decide(
         self,
-        context: DirectiveContext,
-        prediction: DirectivePrediction,
+        context: WarehouseContext,
+        prediction: PpoPolicyOutput,
         wrapper: TarwareEnvWrapper,
     ) -> StrategyDecision:
-        if (
-            prediction.directive.directive_id
-            == self.registry.vocabulary.wait_directive_id
-        ):
+        if prediction.directive.directive_id == self.registry.catalog.wait_directive_id:
             return self.executor.decide(context, prediction, wrapper)
 
         request = ActionerRequest(context=context, prediction=prediction)
@@ -189,18 +186,18 @@ class DecisionPipeline:
 
     def __init__(
         self,
-        policy: DirectivePpoPolicy,
-        registry: DirectiveRegistry,
+        policy: PpoPolicy,
+        registry: Registry,
         strategy: ActionStrategy,
     ) -> None:
-        if policy.vocabulary.digest() != registry.vocabulary.digest():
-            raise ValueError("policy vocabulary does not match directive registry")
+        if policy.catalog.digest() != registry.catalog.digest():
+            raise ValueError("policy catalog does not match directive registry")
         self.policy = policy
         self.registry = registry
         self.strategy = strategy
 
     def choose_action(self, wrapper: TarwareEnvWrapper) -> DemoDecision:
-        context = DirectiveContext.capture(wrapper)
+        context = WarehouseContext.capture(wrapper)
         mask = self.registry.action_mask(context)
         prediction = self.policy.predict(context, mask)
         self._validate_prediction(context, prediction, mask)
@@ -224,7 +221,7 @@ class DecisionPipeline:
 
     @staticmethod
     def _build_decision(
-        prediction: DirectivePrediction, selected: StrategyDecision
+        prediction: PpoPolicyOutput, selected: StrategyDecision
     ) -> DemoDecision:
         result = selected.result
         return DemoDecision(
@@ -242,7 +239,7 @@ class DecisionPipeline:
 
     def _fallback(
         self,
-        prediction: DirectivePrediction,
+        prediction: PpoPolicyOutput,
         wrapper: TarwareEnvWrapper,
         failure: DecisionFailure,
     ) -> DemoDecision:
@@ -250,7 +247,7 @@ class DecisionPipeline:
         detail = str(failure)
         source: Literal["directive_executor", "automatic_no_op"]
         try:
-            live_context = DirectiveContext.capture(wrapper)
+            live_context = WarehouseContext.capture(wrapper)
             action = self.registry.execute(
                 prediction.directive.directive_id, live_context, wrapper
             )
@@ -282,20 +279,20 @@ class DecisionPipeline:
         )
 
 
-class DirectiveExecutorController(DecisionPipeline):
+class ExecutorController(DecisionPipeline):
     controller_name: Literal["ppo_executor"] = "ppo_executor"
 
-    def __init__(self, policy: DirectivePpoPolicy, registry: DirectiveRegistry) -> None:
+    def __init__(self, policy: PpoPolicy, registry: Registry) -> None:
         super().__init__(policy, registry, ExecutorStrategy(registry))
 
 
-class DirectiveGemmaController(DecisionPipeline):
+class GemmaController(DecisionPipeline):
     controller_name: Literal["ppo_gemma"] = "ppo_gemma"
 
     def __init__(
         self,
-        policy: DirectivePpoPolicy,
-        registry: DirectiveRegistry,
+        policy: PpoPolicy,
+        registry: Registry,
         actioner: Actioner,
     ) -> None:
         super().__init__(policy, registry, GemmaStrategy(registry, actioner))
