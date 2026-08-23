@@ -517,6 +517,15 @@ continues to use the pinned llama.cpp E4B GGUF runtime. A compact prompt failed
 the preflight, so the proven wording was retained with dynamically derived role
 groups. The passing rerun achieved 5/5 validity, 6/6 sensitivity, and 3.538 s
 p95 against the 3.92 s limit. No alternate inference dependency was added.
+An isolated schema-v3 prompt path now preserves that byte-stable schema-v2
+legacy prompt while adding a separate, digest-verified few-shot prompt contract.
+The frozen directive catalog still owns `description` for artifact identity,
+logging, and fallback reasons; the new prompt spec owns one richer `instruction`
+and one synthetic five-agent example for each behavior key. Schema-v3 requests
+use four user/assistant example pairs before the full live-state request and do
+not expose the catalog description. This is infrastructure only: no schema-v3
+Gemma preflight or matched episode has run, so the 2026-08-22 negative result
+remains the latest prototype evidence and no improvement is claimed.
 Both checkpoints and manifests are prototype-only artifacts and cannot become
 the PPO checkpoint for the main scientific experiment. Future action sequences
 remain an unresolved main-project extension.

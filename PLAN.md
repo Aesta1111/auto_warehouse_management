@@ -41,6 +41,12 @@ groups became dynamic. The matched 500-step run completed 3 executor tasks and
 2 Gemma tasks; Gemma required 361 effect-violation fallbacks. This is negative,
 unscored prototype evidence.
 
+Schema-v3 few-shot prompt infrastructure was added on 2026-08-23 without a live
+model run. It keeps the schema-v2 prompt byte-stable and the directive catalog
+frozen, while a separate prompt spec supplies digest-verified instructions and
+four synthetic user/assistant examples. It has no validity, latency, or episode
+evidence yet.
+
 This branch remains isolated from the authoritative projector-and-LoRA
 experiment:
 
@@ -66,7 +72,10 @@ Represent the neural output as a typed `DirectiveToken`, not as free-form text:
 
 - `directive_id`: stable integer action used by the PPO policy.
 - `command`: short English command shown to Gemma and in the demo UI.
-- `description`: one-sentence operational meaning included in the prompt.
+- `description`: frozen one-sentence operational meaning used by legacy prompts,
+  artifact identity, logs, and deterministic fallback reasons.
+- `instruction`: schema-v3 prompt-only operational guidance stored outside the
+  directive catalog and never used to change executable semantics.
 - `applicability_rule`: deterministic rule identifying states where the
   directive is an available PPO action.
 - `action_effect_rule`: testable predicate describing what a compliant concrete
@@ -194,7 +203,7 @@ assignments, and same-role destination conflicts.
 
 ### 3.4 Gemma prompt
 
-The prompt contains only controller-visible information:
+The byte-stable schema-v2 prompt contains only controller-visible information:
 
 - The predicted English command and its frozen description.
 - Episode step and the objective of completing requested shelf work.
@@ -202,6 +211,16 @@ The prompt contains only controller-visible information:
 - Requested shelf locations and goal destinations.
 - Per-agent legal destination IDs, with zero explained as no-op.
 - The single-action JSON contract and a warning that every choice is validated.
+
+Schema v3 retains the complete live-state wording but replaces the model-visible
+description with the matching prompt-spec instruction. Before the live request,
+it supplies four compact synthetic user/assistant examples in canonical
+behavior-key order: wait, service a requested shelf, deliver a carried shelf,
+and reposition an idle agent. Examples use five canonical output positions,
+legal synthetic destinations, and no probe, training, validation, demo, or final
+evaluation state. The prompt-contract digest covers the fixed chat-template
+version and the complete prompt spec, while the frozen catalog digest remains
+unchanged.
 
 Use deterministic decoding, at most 192 generated tokens, and no corrective
 retry. The English command guides the action, but it never overrides the action
@@ -1079,7 +1098,7 @@ stop before Phase 4 rather than hiding the problem behind the old SB3 model.
 
 ```python
 class ChatMessage(DemoModel):
-    role: Literal["system", "user"]
+    role: Literal["system", "user", "assistant"]
     content: str
 
 
@@ -1089,16 +1108,21 @@ class PromptEnvelope(DemoModel):
 
 
 class GemmaPromptBuilder:
+    def __init__(self, prompt_spec=None, catalog=None) -> None: ...
+    @property
+    def contract_digest(self) -> str | None: ...
     def build(self, request: ActionerRequest) -> PromptEnvelope: ...
     def serialize_state(self, context: WarehouseContext) -> str: ...
     def response_schema(self, context: WarehouseContext) -> dict[str, Any]: ...
 ```
 
-Use one fixed system message defining Gemma as the actioner and one user message
-containing sections in this exact order: objective, directive, agents,
-requested shelves, goals, legal destinations, and output instructions. Sort all
-records by their existing canonical order. Do not include PPO probabilities or
-value estimates in the prompt; the LLM should interpret the chosen token, not
+For schema v2, use the fixed system message and one user message containing
+sections in this exact order: objective, directive, agents, requested shelves,
+goals, legal destinations, and output instructions. For schema v3, use the
+prompt-spec system message, four synthetic user/assistant pairs, and a final
+live user message with the same full section order. Sort all records by their
+existing canonical order. Do not include PPO probabilities, value estimates,
+or experiment seed identifiers; the LLM should interpret the chosen token, not
 second-guess PPO confidence.
 
 The generated JSON Schema requires `destinations` and `reason`, forbids extra
@@ -1533,6 +1557,11 @@ Deliverables:
   operator explicitly starts E2B and produces a separate passing config/report.
 - Model file, prompt schema, server, offload, context, and hardware provenance
   are recorded.
+
+The later schema-v3 preflight must additionally record the exact prompt-contract
+digest and fail closed if it differs from the configured prompt spec. Its live
+gate remains pending and must cover all four directive classes before a matched
+episode is interpreted.
 
 Gate: `probe_gemma_actioner.py` produces a passing preflight report for the
 exact server that will be used by the demo.

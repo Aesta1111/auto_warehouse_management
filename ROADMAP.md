@@ -57,6 +57,10 @@ complete, and its seeds remain excluded from later scientific evaluation.
   atomic summaries, and frozen-artifact verification.
 - [x] Run and record the live 500-step executor/Gemma matched demonstration
   gate; this remains prototype evidence and does not score the main project.
+- [x] Add a schema-v3 prompt-only contract with four validated synthetic
+  user/assistant examples while preserving the v1 catalog and schema-v2 prompt.
+- [ ] Run and record the schema-v3 all-directive preflight and a separately
+  versioned matched episode before interpreting the few-shot prompt.
 
 Phase 2 of the prototype passed on 2026-08-13: 2,500 states checked across
 seeds 8000-8004 with zero uncovered states, executor failures, or effect
@@ -93,6 +97,12 @@ refactor. Executor/Gemma completed 3/2 tasks; Gemma recorded 361 structured
 effect violations and deterministic fallbacks. This is negative prototype
 evidence, not a main-experiment phase result. See [the refactor and matched-run
 entry](docs/research-log/2026-08-22-directive-demo-refactor-v2.md).
+
+The schema-v3 few-shot prompt infrastructure was added on 2026-08-23 without
+calling Gemma. Its prompt spec is digest-verified and separate from the frozen
+directive catalog, and its four compact examples use no experiment seed state.
+The existing schema-v2 preflight and matched-run artifacts remain authoritative
+until a later live schema-v3 investigation receives its own research-log entry.
 
 ## Phase 2: runnable project foundation
 
