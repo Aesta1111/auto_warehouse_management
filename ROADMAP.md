@@ -164,6 +164,15 @@ RTX 4050 and returned a strict JSON-schema response, but the full parent,
 preflight, adaptation, and gated evaluation sequence is still pending; no new
 performance result is claimed.
 
+Later on 2026-08-24, the 100,000-step parent completed, but the first refreshed
+Qwen preflight produced 0/8 semantically valid measured actions and blocked
+adaptation. A versioned safe-candidate action boundary moved directive
+eligibility into deterministic code and constrained Qwen to complete valid
+joint actions. It then completed warm-up and reached 8/8 measured validity with
+no action/effect violations. The overall preflight remains failed because its
+state search covered only `service_requested_shelf` and found no sensitivity
+states; adaptation and all gated evaluation partitions remain unrun.
+
 ## Phase 2: runnable project foundation
 
 - [x] Add `pyproject.toml`, the `uv` lockfile, package metadata, and dependency

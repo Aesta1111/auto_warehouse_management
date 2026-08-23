@@ -112,10 +112,11 @@ def test_prompt_and_schema_are_deterministic_and_state_only(
     assert first.response_schema["additionalProperties"] is False
     assert first.response_schema["properties"]["destinations"]["minItems"] == 5
     assert first.response_schema["properties"]["destinations"]["maxItems"] == 5
-    assert (
-        first.response_schema["properties"]["destinations"]["items"]["maximum"]
-        == request.context.action_mask.destination_count - 1
+    schema_candidates = tuple(
+        tuple(candidate)
+        for candidate in first.response_schema["properties"]["destinations"]["enum"]
     )
+    assert schema_candidates == builder.safe_candidate_actions(request)
 
 
 def test_few_shot_prompt_is_deterministic_and_excludes_catalog_description(
@@ -142,10 +143,12 @@ def test_few_shot_prompt_is_deterministic_and_excludes_catalog_description(
         in live_text
     )
     assert request.directive.description in all_text
-    assert "GLOBAL RULES" in live_text
+    assert "ACTION RULES" in live_text
     assert "FINAL CHECK" in live_text
     assert "SELECTED DIRECTIVE" in live_text
     assert "LIVE STATE" in live_text
+    assert "action_slots" in live_text
+    assert "allowed_destination_ids" in live_text
     assert "probabilities" not in all_text
     assert "value_estimate" not in all_text
     assert "9100" not in all_text
@@ -158,7 +161,7 @@ def test_few_shot_prompt_is_deterministic_and_excludes_catalog_description(
     assert "{{SELECTED_DIRECTIVE" not in live_text
     assert "{{LIVE_STATE_JSON}}" not in live_text
     assert builder.contract_digest == (
-        "52126c0cf1681428f962272566cae6ecf8bba1b61083d673827ed55166dc3bd8"
+        "9d9cda6755f8bfefef8924c09da14e11e223e788cf28492223840961139cc108"
     )
     messages_json = json.dumps(
         [message.model_dump(mode="json") for message in first.messages],
@@ -167,22 +170,57 @@ def test_few_shot_prompt_is_deterministic_and_excludes_catalog_description(
         sort_keys=True,
     )
     assert hashlib.sha256(messages_json.encode()).hexdigest() == (
-        "d88a45291ad2e974d06a4d86c3e8384aeb7a3ac36be5ca14a4a68fa84bf21cc8"
+        "f3bbc375ecb9e5701540487f567edb9018471eff5e82a9424a03a4290c639e08"
     )
     assert builder.template_digest == (
-        "03ce2b4e72d07f77e4d1a7967859c7d3201fcbd39133b49b1d5746dbb58135ec"
+        "1faa0fb7a9dad3802929838fc26570190d7ecaa62da591deeb447a6e70634ec0"
     )
     assert builder.template_digests == {
         "service_requested_shelf": (
-            "8ff7003d3c2b43f9a0da0d80167aed3c0967db84305c47b47dc53686d8aad706"
+            "b9ae66053dbc64b8e7abea19f36db0214851a7fb4508b9423fde2b7f49b287a4"
         ),
         "deliver_carried_shelf": (
-            "cfdb60eb534a327f7ea87a38aa307830534e38f0815d05605c684d87eb1af40e"
+            "2e6ba17ca8250d5fdeab774d4d1bf68926e5774e1106ec83cfe1922539a51239"
         ),
         "reposition_idle_agent": (
-            "cb0544e1b9a9fb9455cd81f35c3d07400f94b58387f7b40b6467928f8a603f7f"
+            "7a160fdf7763219641ba7ef6cd4a63de28b4792e9bd63e3b3f07ca29a3a93154"
         ),
     }
+
+
+def test_safe_candidate_schema_excludes_invalid_agent_index_destinations(
+    catalog: DirectiveCatalog,
+) -> None:
+    wrapper = TarwareEnvWrapper(ENVIRONMENT_ID)
+    wrapper.reset(seed=9300)
+    try:
+        request = _request(wrapper, catalog, directive_id=1)
+        builder = LlmPromptBuilder.load(
+            ROOT / "configs/demo/llm-actioner-few-shot-prompt.yaml", catalog
+        )
+
+        payload = builder.action_state_payload(request)
+        allowed = tuple(
+            tuple(slot["allowed_destination_ids"]) for slot in payload["action_slots"]
+        )
+        schema_candidates = tuple(
+            tuple(candidate)
+            for candidate in builder.build(request).response_schema["properties"][
+                "destinations"
+            ]["enum"]
+        )
+
+        assert allowed[3:] == ((0,), (0,))
+        assert 3 not in allowed[3]
+        assert 4 not in allowed[4]
+        assert (0, 0, 0, 3, 4) not in schema_candidates
+        assert schema_candidates == builder.safe_candidate_actions(request)
+        assert all(
+            any(destination != 0 for destination in action)
+            for action in schema_candidates
+        )
+    finally:
+        wrapper.close()
 
 
 @pytest.mark.parametrize(
@@ -196,12 +234,18 @@ def test_few_shot_prompt_is_deterministic_and_excludes_catalog_description(
 def test_each_llm_directive_loads_only_its_own_examples(
     catalog: DirectiveCatalog,
     wrapped_env: TarwareEnvWrapper,
+    monkeypatch: pytest.MonkeyPatch,
     directive_id: int,
     expected_heading: str,
 ) -> None:
     request = _request(wrapped_env, catalog, directive_id)
     builder = LlmPromptBuilder.load(
         ROOT / "configs/demo/llm-actioner-few-shot-prompt.yaml", catalog
+    )
+    monkeypatch.setattr(
+        builder,
+        "safe_candidate_actions",
+        lambda _request: ((0,) * len(request.context.observation.agents),),
     )
 
     text = builder.build(request).messages[1].content

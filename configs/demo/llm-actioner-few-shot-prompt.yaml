@@ -1,6 +1,6 @@
 schema_version: 3
-prompt_id: directive-llm-actioner-per-directive-few-shot-v3
-template_version: directive-llm-per-directive-chat-v1
+prompt_id: directive-llm-actioner-safe-candidates-v5
+template_version: directive-llm-per-directive-chat-v3
 prompt_template_paths:
   service_requested_shelf: llm-actioner-service-requested-shelf-prompt.txt
   deliver_carried_shelf: llm-actioner-deliver-carried-shelf-prompt.txt

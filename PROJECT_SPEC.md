@@ -193,6 +193,12 @@ directive classes, strict JSON validity, directive sensitivity, and the
 configured p95 latency ceiling. `wait` is excluded because execution bypasses
 the LLM and uses the deterministic directive executor.
 
+The active action boundary deterministically intersects the selected directive
+semantics with the live simulator mask, exposes a bounded set of complete safe
+joint-action candidates, and constrains the structured `destinations` response
+to one whole candidate. Qwen chooses among valid actions rather than deriving
+eligibility from agent indices, coordinates, and raw destination masks.
+
 ## 6. Metrics and evaluation protocol
 
 ### Primary metric
@@ -547,8 +553,9 @@ verification, but it no longer has an active YAML run configuration.
 The frozen directive catalog still owns `description` for artifact identity,
 logging, and fallback reasons; the active schema-v3 prompt spec maps each of the
 three LLM-actioned behavior keys to its own external TXT template. Each selected
-request includes only that directive's three examples before the full live
-state, so unrelated examples and experiment seeds are absent. `wait` has no
+request includes only that directive's three examples plus deterministic
+per-agent allowed destinations and complete safe joint-action candidates.
+Unrelated examples and experiment seeds are absent. `wait` has no
 template because it uses the deterministic executor. The active adaptation is PPO
 fine-tuning with frozen Qwen inference, not Qwen weight fine-tuning: the model
 file, prompt contract, decoding settings, catalog, and parent PPO checkpoint

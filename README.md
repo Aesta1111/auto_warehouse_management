@@ -9,10 +9,11 @@ standalone PPO controller in the TA-RWARE simulator.
 The main research project remains in the compatibility-check phase. Local
 simulator replay, rendering, MaskablePPO, and the bounded model probes are
 verified. Pickled simulator snapshots were rejected in favor of exact
-seed-plus-action replay. A separate, unscored directive-demo refresh now has a
-versioned Qwen3.5-2B Q8 runtime contract, an external 12-example prompt, and
-CUDA-enabled 4x256 PPO settings; its full 100k-step parent/adaptation/evaluation
-run remains pending. The previous failed model run and its artifacts remain
+seed-plus-action replay. The separate, unscored directive-demo refresh has a
+trained 100k-step 4x256 parent and a versioned Qwen3.5-2B Q8 actioner. Its
+safe-candidate prompt boundary now produces 8/8 semantically valid measured
+actions, but three-class preflight coverage and sensitivity still fail, so PPO
+adaptation and evaluation remain gated. Earlier failed artifacts remain
 historical evidence and are not overwritten.
 
 The hybrid improving on PPO is a hypothesis, not a required result. Negative and

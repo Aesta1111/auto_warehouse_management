@@ -1,34 +1,28 @@
-You are the actioner for a warehouse controller. Apply only the selected service-requested-shelf directive to the visible live state. The project validates every destination after generation, so do not guess hidden state and do not add commentary outside the required JSON object.
+You are the actioner for a warehouse controller. Apply only the selected service-requested-shelf directive. Return one joint destination action and no commentary outside the required JSON object.
 
-GLOBAL RULES
+ACTION RULES
+There are exactly {{AGENT_COUNT}} action slots.
 1. Return exactly one JSON object with exactly two keys: destinations and reason.
-2. destinations must contain exactly {{AGENT_COUNT}} non-negative integer destination IDs in the canonical agent order shown in LIVE STATE.
-3. Use only destination IDs in the matching agent's legal_destinations row. Destination 0 means no new assignment and is always safe when legal.
-4. Never give two agents with the same role the same nonzero destination. Different roles may share a destination.
-5. Keep reason concise and no longer than 160 characters. Do not emit Markdown, code fences, extra keys, or alternatives.
-
-SERVICE-REQUESTED-SHELF RULES
-- Assign one or more idle eligible agents to legal destinations listed in requested_shelves.
-- Busy agents must receive 0. A nonzero destination not currently requested does not satisfy this directive.
-- Prefer distinct requested destinations when several idle agents can make useful progress.
-- If no requested destination is legal for an idle agent, return 0 for that agent.
+2. Each action_slots entry describes one destinations array position. output_index is an array position, not a destination ID.
+3. destinations must exactly match one complete vector from LIVE STATE candidate_actions. Copy that vector without combining candidates.
+4. action_slots explains why each value is legal. output_index values are never destination choices unless explicitly listed.
+5. Positions in the same same_role_unique_nonzero_groups entry must not use the same nonzero destination.
+6. The allowed lists already apply busy-agent, requested-shelf, role, carrying, and simulator legality rules. Do not infer additional destinations.
+7. Keep reason concise and no longer than 160 characters.
 
 FEW-SHOT EXAMPLES
 
 ## SERVICE REQUESTED SHELF EXAMPLE 1
-State: five agents (AGV, AGV, picker, picker, AGV); idle=[0,1,2,3,4]; requested=[11]; goals=[51,52]; legal=[[0,11],[0,12],[0,11],[0,20],[0,13]].
-Directive: service-requested-shelf
-Output: {"destinations":[0,0,11,0,0],"reason":"Idle picker 2 has legal access to requested destination 11."}
+Input: {"action_slots":[{"output_index":0,"agent_id":"agv-0","role":"agv","allowed_destination_ids":[0]},{"output_index":1,"agent_id":"agv-1","role":"agv","allowed_destination_ids":[0]},{"output_index":2,"agent_id":"picker-0","role":"picker","allowed_destination_ids":[0,11]},{"output_index":3,"agent_id":"picker-1","role":"picker","allowed_destination_ids":[0]},{"output_index":4,"agent_id":"agv-2","role":"agv","allowed_destination_ids":[0]}],"minimum_nonzero_assignments":1,"same_role_unique_nonzero_groups":{"agv":[0,1,4],"picker":[2,3]}}
+Output: {"destinations":[0,0,11,0,0],"reason":"Picker 0 uses its allowed requested-shelf destination 11."}
 
 ## SERVICE REQUESTED SHELF EXAMPLE 2
-State: five agents (picker, AGV, AGV, picker, AGV); idle=[1,2,3,4]; requested=[14,15]; goals=[51]; legal=[[0,14],[0,14],[0,15],[0,15],[0,16]].
-Directive: service-requested-shelf
-Output: {"destinations":[0,14,0,15,0],"reason":"Idle AGV 1 and picker 3 service distinct legal requested destinations."}
+Input: {"action_slots":[{"output_index":0,"agent_id":"picker-0","role":"picker","allowed_destination_ids":[0]},{"output_index":1,"agent_id":"agv-0","role":"agv","allowed_destination_ids":[0,14]},{"output_index":2,"agent_id":"agv-1","role":"agv","allowed_destination_ids":[0,15]},{"output_index":3,"agent_id":"picker-1","role":"picker","allowed_destination_ids":[0,15]},{"output_index":4,"agent_id":"agv-2","role":"agv","allowed_destination_ids":[0]}],"minimum_nonzero_assignments":1,"same_role_unique_nonzero_groups":{"agv":[1,2,4],"picker":[0,3]}}
+Output: {"destinations":[0,14,0,15,0],"reason":"AGV 0 and picker 1 use distinct allowed requested-shelf destinations."}
 
 ## SERVICE REQUESTED SHELF EXAMPLE 3
-State: five agents (AGV, picker, AGV, picker, AGV); idle=[0,2,4]; requested=[18]; goals=[61,62]; legal=[[0,18],[0,18],[0,19],[0,23],[0,18]].
-Directive: service-requested-shelf
-Output: {"destinations":[18,0,0,0,0],"reason":"Idle AGV 0 advances requested shelf work while all other agents wait."}
+Input: {"action_slots":[{"output_index":0,"agent_id":"agv-0","role":"agv","allowed_destination_ids":[0,18]},{"output_index":1,"agent_id":"picker-0","role":"picker","allowed_destination_ids":[0]},{"output_index":2,"agent_id":"agv-1","role":"agv","allowed_destination_ids":[0]},{"output_index":3,"agent_id":"picker-1","role":"picker","allowed_destination_ids":[0]},{"output_index":4,"agent_id":"agv-2","role":"agv","allowed_destination_ids":[0,18]}],"minimum_nonzero_assignments":1,"same_role_unique_nonzero_groups":{"agv":[0,2,4],"picker":[1,3]}}
+Output: {"destinations":[18,0,0,0,0],"reason":"AGV 0 uses allowed destination 18; all other slots choose zero."}
 
 SELECTED DIRECTIVE
 behavior_key: {{SELECTED_DIRECTIVE_BEHAVIOR_KEY}}
@@ -39,4 +33,4 @@ LIVE STATE
 {{LIVE_STATE_JSON}}
 
 FINAL CHECK
-Count the destinations, check each row's legal list, enforce same-role uniqueness, and confirm every nonzero choice is a requested-shelf destination for an idle agent. Return the JSON object now.
+Copy one complete candidate_actions vector into destinations. Do not create a new vector. Return the JSON object now.

@@ -12,7 +12,11 @@ from warehouse_ai.demo.artifacts import (
     canonical_json_text,
     sha256_bytes,
 )
-from warehouse_ai.demo.contracts.directives import WarehouseContext, DirectiveCatalog
+from warehouse_ai.demo.contracts.directives import (
+    Directive,
+    DirectiveCatalog,
+    WarehouseContext,
+)
 from warehouse_ai.demo.contracts.base import load_yaml_config
 from warehouse_ai.demo.contracts.inference import (
     ActionerRequest,
@@ -21,6 +25,10 @@ from warehouse_ai.demo.contracts.inference import (
 )
 from warehouse_ai.demo.contracts.prompting import LlmPromptSpec
 from warehouse_ai.demo.inference.prompt_examples import render_example_user
+from warehouse_ai.demo.directives.rules import (
+    agent_is_eligible,
+    eligible_destinations,
+)
 
 
 _SYSTEM_MESSAGE = (
@@ -267,6 +275,95 @@ class LlmPromptBuilder:
             "same_role_unique_nonzero_groups": dict(sorted(role_groups.items())),
         }
 
+    @staticmethod
+    def allowed_destinations_by_agent(
+        context: WarehouseContext, directive: Directive
+    ) -> tuple[tuple[int, ...], ...]:
+        """Return directive-filtered destination IDs for each output position."""
+        eligible = eligible_destinations(directive, context)
+        rows: list[tuple[int, ...]] = []
+        for row in range(len(context.observation.agents)):
+            allowed = [0]
+            if agent_is_eligible(directive, context, row):
+                allowed.extend(
+                    destination
+                    for destination, legal in enumerate(context.action_mask.values[row])
+                    if destination != 0 and bool(legal) and destination in eligible
+                )
+            rows.append(tuple(allowed))
+        return tuple(rows)
+
+    def action_state_payload(self, request: ActionerRequest) -> dict[str, Any]:
+        """Render only the state needed to choose a directive-valid action."""
+        context = request.context
+        directive = request.directive
+        role_groups: defaultdict[str, list[int]] = defaultdict(list)
+        for index, agent in enumerate(context.observation.agents):
+            role_groups[agent.role.value].append(index)
+        allowed = self.allowed_destinations_by_agent(context, directive)
+        candidates = self.safe_candidate_actions(request)
+        return {
+            "step": context.observation.step,
+            "directive": {
+                "behavior_key": directive.behavior_key,
+                "command": directive.command,
+                "instruction": directive.description,
+            },
+            "action_slots": [
+                {
+                    "output_index": row,
+                    "agent_id": agent.agent_id,
+                    "role": agent.role.value,
+                    "allowed_destination_ids": list(allowed[row]),
+                }
+                for row, agent in enumerate(context.observation.agents)
+            ],
+            "candidate_actions": [list(candidate) for candidate in candidates],
+            "minimum_nonzero_assignments": directive.effect.minimum,
+            "maximum_nonzero_assignments": directive.effect.maximum,
+            "same_role_unique_nonzero_groups": dict(sorted(role_groups.items())),
+        }
+
+    def safe_candidate_actions(
+        self, request: ActionerRequest
+    ) -> tuple[tuple[int, ...], ...]:
+        """Enumerate a bounded set of complete actions that satisfy the directive."""
+        context = request.context
+        directive = request.directive
+        allowed = self.allowed_destinations_by_agent(context, directive)
+        agent_count = len(context.observation.agents)
+        zero = (0,) * agent_count
+        if directive.effect.minimum == 0:
+            return (zero,)
+
+        candidates: list[tuple[int, ...]] = []
+        for row, destinations in enumerate(allowed):
+            for destination in destinations:
+                if destination == 0:
+                    continue
+                action: list[int] = list(zero)
+                action[row] = destination
+                candidates.append(tuple(action))
+
+        greedy: list[int] = list(zero)
+        selected: set[tuple[str, int]] = set()
+        for row, destinations in enumerate(allowed):
+            role = context.observation.agents[row].role.value
+            for destination in destinations:
+                if destination == 0 or (role, destination) in selected:
+                    continue
+                greedy[row] = destination
+                selected.add((role, destination))
+                break
+        greedy_action = tuple(greedy)
+        if greedy_action != zero and greedy_action not in candidates:
+            candidates.append(greedy_action)
+        if not candidates:
+            raise ValueError(
+                f"directive {directive.behavior_key} has no safe candidate action"
+            )
+        return tuple(candidates)
+
     def build(self, request: ActionerRequest) -> PromptEnvelope:
         directive = request.directive
         if self.prompt_spec is None:
@@ -292,21 +389,14 @@ class LlmPromptBuilder:
                         f"no prompt template for {directive.behavior_key}"
                     ) from exc
             template = raw_template.decode("utf-8")
-            payload = self.state_payload(
-                request.context,
-                directive={
-                    "behavior_key": directive.behavior_key,
-                    "command": directive.command,
-                    "instruction": directive.description,
-                },
-            )
+            payload = self.action_state_payload(request)
             rendered = template
             replacements = {
                 "{{SELECTED_DIRECTIVE_BEHAVIOR_KEY}}": directive.behavior_key,
                 "{{SELECTED_DIRECTIVE_COMMAND}}": directive.command,
                 "{{SELECTED_DIRECTIVE_INSTRUCTION}}": directive.description,
                 "{{LIVE_STATE_JSON}}": canonical_json_text(payload),
-                "{{AGENT_COUNT}}": str(len(payload["agents"])),
+                "{{AGENT_COUNT}}": str(len(payload["action_slots"])),
             }
             for marker, value in replacements.items():
                 rendered = rendered.replace(marker, value)
@@ -317,7 +407,7 @@ class LlmPromptBuilder:
                     ChatMessage(role="system", content=_SYSTEM_MESSAGE),
                     ChatMessage(role="user", content=rendered),
                 ),
-                response_schema=self.response_schema(request.context),
+                response_schema=self.response_schema(request),
             )
 
         prompt_directive = self.prompt_spec.by_behavior_key(directive.behavior_key)
@@ -350,7 +440,7 @@ class LlmPromptBuilder:
         )
         return PromptEnvelope(
             messages=tuple(messages),
-            response_schema=self.response_schema(request.context),
+            response_schema=self.response_schema(request),
         )
 
     def _build_legacy(self, request: ActionerRequest) -> PromptEnvelope:
@@ -367,7 +457,7 @@ class LlmPromptBuilder:
                     ),
                 ),
             ),
-            response_schema=self.response_schema(request.context),
+            response_schema=self.response_schema(request),
         )
 
     def _render_live_user(
@@ -448,18 +538,16 @@ class LlmPromptBuilder:
     def serialize_state(self, context: WarehouseContext) -> str:
         return canonical_json_text(self.state_payload(context))
 
-    def response_schema(self, context: WarehouseContext) -> dict[str, Any]:
+    def response_schema(self, request: ActionerRequest) -> dict[str, Any]:
+        context = request.context
         agent_count = len(context.observation.agents)
+        candidates = self.safe_candidate_actions(request)
         return {
             "type": "object",
             "properties": {
                 "destinations": {
                     "type": "array",
-                    "items": {
-                        "type": "integer",
-                        "minimum": 0,
-                        "maximum": context.action_mask.destination_count - 1,
-                    },
+                    "enum": [list(candidate) for candidate in candidates],
                     "minItems": agent_count,
                     "maxItems": agent_count,
                 },

@@ -35,7 +35,7 @@ def test_five_composed_configs_load_with_descriptive_names() -> None:
     )
 
     assert model.hidden_sizes == (256, 256, 256, 256)
-    assert actioner.actioner_id == "qwen3.5-2b-q8-llm-actioner"
+    assert actioner.actioner_id == "qwen3.5-2b-q8-safe-candidate-actioner-v3"
     assert training.model == model
     assert training.runtime.hidden_sizes == model.hidden_sizes
     assert fine_tuning.actioner == actioner
@@ -44,7 +44,7 @@ def test_five_composed_configs_load_with_descriptive_names() -> None:
     assert evaluation.comparison_runtime("selection").prerequisite_summary_path is None
     assert evaluation.comparison_runtime("confirmation").prerequisite_summary_path == (
         Path(
-            "results/demo/ppo-llm-fine-tuning-4x256-qwen3.5-4096-cuda/selection-gate.json"
+            "results/demo/ppo-llm-fine-tuning-4x256-qwen3.5-safe-candidate-4096-cuda/selection-gate.json"
         )
     )
     assert training.run.total_timesteps == 100_000

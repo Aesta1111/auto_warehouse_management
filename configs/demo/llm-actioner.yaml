@@ -1,5 +1,5 @@
 schema_version: 2
-actioner_id: qwen3.5-2b-q8-llm-actioner
+actioner_id: qwen3.5-2b-q8-safe-candidate-actioner-v3
 selected_model: qwen3.5-2b-q8
 vocabulary_path: configs/demo/directive-catalog.yaml
 prompt_spec_path: configs/demo/llm-actioner-few-shot-prompt.yaml
