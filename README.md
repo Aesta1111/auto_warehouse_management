@@ -18,13 +18,12 @@ directive-sensitivity responses were valid, and p95 latency was 3.56 seconds
 against the 10-second limit. The remaining Phase 1 gate is the prepared
 Linux/A40 cloud run for pathfinder equivalence, real 4-bit weights, memory,
 latency, and cost. The main training pipeline has not been implemented.
-The directive-demo Phase 6 matched runner and its live 500-step gate completed;
-the negative 3/2-task executor/Gemma result remains a separate prototype, not a
-main-project evaluation. Schema-v3 few-shot prompting and frozen-Gemma PPO
-adaptation infrastructure are implemented offline, but neither has a live run.
-The new schema-v4 PPO uses config-controlled MLP hidden sizes and initially
-declares `[64]`; it has not been trained, so schema v3 remains the latest
-validated directive-PPO evidence.
+The directive-demo schema-v4 parent PPO, E4B preflight, frozen-Gemma PPO
+adaptation, matched demo, selection comparison, and confirmation comparison
+have now run locally. The adapted child passed selection but failed confirmation
+on seeds 8202-8203, so final seed 9100 was correctly withheld. This remains
+prototype-only evidence; the main projector/LoRA pipeline has not been
+implemented and the all-four-directive live preflight gate is still open.
 
 The hybrid improving on PPO is a hypothesis, not a required result. Negative and
 inconclusive findings must be reported without changing the primary metric after

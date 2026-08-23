@@ -66,11 +66,11 @@ complete, and its seeds remain excluded from later scientific evaluation.
   architecture and legacy schema-v2/v3 checkpoint loading.
 - [x] Replace the prototype's copied version ladder with composed PPO-model,
   LLM-actioner, PPO-training, PPO-fine-tuning, and evaluation run configs.
-- [ ] Train and validate the schema-v4 deterministic PPO parent without
+- [x] Train and validate the schema-v4 deterministic PPO parent without
   overwriting the schema-v3 evidence.
 - [ ] Run and record the schema-v4 all-directive preflight and a separately
   versioned matched episode before interpreting the few-shot prompt.
-- [ ] Only if that baseline retains a material executor-transfer gap, run the
+- [x] Only if that baseline retains a material executor-transfer gap, run the
   1,024-step Gemma-in-the-loop PPO adaptation on training seeds.
 - [ ] Compare parent/adapted checkpoints on selection and confirmation seeds;
   expose seed 9100 only after the confirmation gate passes.
@@ -139,6 +139,13 @@ schema-v4 parent and matching schema-v4 preflight exist. Gemma remains frozen.
 These implementation gates do not establish that adaptation is useful. The
 new descriptive filenames identify the same deferred future experiment rather
 than a completed run.
+
+On 2026-08-23, the schema-v4 parent completed its configured 25,000-step run
+and passed validation. The live E4B preflight passed for the configured
+wait/service sensitivity cases, and the matched 500-step demo completed. The
+1,024-step adaptation passed selection but failed the disjoint confirmation
+gate: the child completed fewer Gemma-backed tasks and used more fallbacks on
+seeds 8202-8203. Seed 9100 was not run. See [the full-run research log](docs/research-log/2026-08-23-directive-ppo-gemma-full-run.md).
 
 ## Phase 2: runnable project foundation
 
