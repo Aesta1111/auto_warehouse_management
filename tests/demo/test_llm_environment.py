@@ -11,11 +11,11 @@ from warehouse_ai.demo.contracts.inference import (
     ActionerRequest,
     ActionerResult,
     FailureCode,
-    GemmaActionResponse,
+    LlmActionResponse,
 )
 from warehouse_ai.demo.directives import Registry, build_registry
 from warehouse_ai.demo.inference.actioner import Actioner, ActionerError
-from warehouse_ai.demo.ppo.gemma_environment import GemmaGymEnv
+from warehouse_ai.demo.ppo.llm_environment import LlmGymEnv
 
 
 ROOT = Path(__file__).parents[2]
@@ -23,7 +23,7 @@ ENVIRONMENT_ID = "tarware-tiny-3agvs-2pickers-partialobs-v1"
 
 
 class ExecutorShapedActioner:
-    def __init__(self, environment: GemmaGymEnv, registry: Registry) -> None:
+    def __init__(self, environment: LlmGymEnv, registry: Registry) -> None:
         self.environment = environment
         self.registry = registry
         self.calls = 0
@@ -36,7 +36,7 @@ class ExecutorShapedActioner:
             self.environment.wrapper,
         )
         return ActionerResult(
-            response=GemmaActionResponse(
+            response=LlmActionResponse(
                 destinations=tuple(item.destination_id for item in action.actions),
                 reason="valid fake action",
             ),
@@ -54,10 +54,10 @@ class FailingActioner:
 
 def _environment(
     actioner: Actioner,
-) -> tuple[GemmaGymEnv, DirectiveCatalog, Registry]:
+) -> tuple[LlmGymEnv, DirectiveCatalog, Registry]:
     catalog = DirectiveCatalog.load(ROOT / "configs/demo/directive-catalog.yaml")
     registry = build_registry(catalog)
-    environment = GemmaGymEnv(
+    environment = LlmGymEnv(
         ENVIRONMENT_ID,
         catalog,
         registry,
@@ -69,7 +69,7 @@ def _environment(
     return environment, catalog, registry
 
 
-def _applicable_non_wait(environment: GemmaGymEnv, wait_id: int) -> int:
+def _applicable_non_wait(environment: LlmGymEnv, wait_id: int) -> int:
     return next(
         int(value)
         for value in np.flatnonzero(environment.action_masks())
@@ -77,7 +77,7 @@ def _applicable_non_wait(environment: GemmaGymEnv, wait_id: int) -> int:
     )
 
 
-def test_valid_gemma_transition_preserves_simulator_reward() -> None:
+def test_valid_llm_transition_preserves_simulator_reward() -> None:
     placeholder = cast(Actioner, FailingActioner())
     environment, catalog, registry = _environment(placeholder)
     actioner = ExecutorShapedActioner(environment, registry)
@@ -90,9 +90,9 @@ def test_valid_gemma_transition_preserves_simulator_reward() -> None:
 
         assert actioner.calls == 1
         assert reward == pytest.approx(info["simulator_reward"])
-        assert info["executor_status"] == "gemma"
+        assert info["executor_status"] == "llm"
         assert info["failure_code"] is None
-        assert environment.metrics.gemma_calls == 1
+        assert environment.metrics.llm_calls == 1
         assert environment.metrics.fallbacks == 0
     finally:
         environment.close()
@@ -113,14 +113,14 @@ def test_failure_penalty_is_visible_only_to_learning_reward() -> None:
         environment.close()
 
 
-def test_wait_bypasses_gemma_and_has_no_fallback_penalty() -> None:
+def test_wait_bypasses_llm_and_has_no_fallback_penalty() -> None:
     environment, catalog, _ = _environment(cast(Actioner, FailingActioner()))
     try:
         _, reward, _, _, info = environment.step(catalog.wait_directive_id)
 
         assert reward == pytest.approx(info["simulator_reward"])
         assert info["executor_status"] == "directive_executor"
-        assert environment.metrics.gemma_calls == 0
+        assert environment.metrics.llm_calls == 0
         assert environment.metrics.fallbacks == 0
     finally:
         environment.close()

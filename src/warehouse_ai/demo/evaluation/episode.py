@@ -93,7 +93,7 @@ def run_episode(
         command = decision.prediction.directive.command
         directive_counts[command] = directive_counts.get(command, 0) + 1
         attempted_llm = (
-            controller.controller_name == "ppo_gemma" and command.casefold() != "wait"
+            controller.controller_name == "ppo_llm" and command.casefold() != "wait"
         )
         if attempted_llm:
             llm_calls += 1

@@ -22,13 +22,13 @@ __all__ = [
     "DecisionFailure",
     "DemoController",
     "ExecutorController",
-    "GemmaController",
+    "LlmController",
 ]
 
 
 class DemoController(Protocol):
     @property
-    def controller_name(self) -> Literal["ppo_executor", "ppo_gemma"]: ...
+    def controller_name(self) -> Literal["ppo_executor", "ppo_llm"]: ...
 
     def choose_action(self, wrapper: TarwareEnvWrapper) -> DemoDecision: ...
 
@@ -102,8 +102,8 @@ class ExecutorController(DecisionPipeline):
         super().__init__(policy, registry, DirectiveExecutionService(registry))
 
 
-class GemmaController(DecisionPipeline):
-    controller_name: Literal["ppo_gemma"] = "ppo_gemma"
+class LlmController(DecisionPipeline):
+    controller_name: Literal["ppo_llm"] = "ppo_llm"
 
     def __init__(
         self,

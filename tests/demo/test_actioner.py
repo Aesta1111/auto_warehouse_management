@@ -15,11 +15,11 @@ from warehouse_ai.demo.contracts.inference import (
     ActionerRequest,
     ActionerResult,
     FailureCode,
-    GemmaActionResponse,
+    LlmActionResponse,
 )
 from warehouse_ai.demo.controllers import (
     ExecutorController,
-    GemmaController,
+    LlmController,
 )
 from warehouse_ai.demo.directives import Registry, build_registry
 from warehouse_ai.demo.execution import DirectiveExecutionService
@@ -99,7 +99,7 @@ class FakeActioner:
         elif self.mode == "stale":
             self.wrapper.step(self.wrapper.no_op())
         return ActionerResult(
-            response=GemmaActionResponse(
+            response=LlmActionResponse(
                 destinations=destinations,
                 reason="fake action",
             ),
@@ -131,23 +131,23 @@ def test_valid_model_output_matches_executor_and_preserves_provenance(
     catalog: DirectiveCatalog, registry: Registry
 ) -> None:
     executor_wrapper = _wrapper()
-    gemma_wrapper = _wrapper()
+    llm_wrapper = _wrapper()
     try:
         policy = _policy(catalog, 1)
         expected = ExecutorController(policy, registry).choose_action(executor_wrapper)
-        actual = GemmaController(
+        actual = LlmController(
             policy,
             registry,
-            cast(Actioner, FakeActioner(gemma_wrapper, registry)),
-        ).choose_action(gemma_wrapper)
+            cast(Actioner, FakeActioner(llm_wrapper, registry)),
+        ).choose_action(llm_wrapper)
         assert actual.action == expected.action
-        assert actual.source == "gemma"
+        assert actual.source == "llm"
         assert actual.failure_code is None
         assert actual.prompt_tokens == 10
         assert actual.completion_tokens == 4
     finally:
         executor_wrapper.close()
-        gemma_wrapper.close()
+        llm_wrapper.close()
 
 
 @pytest.mark.parametrize(
@@ -171,7 +171,7 @@ def test_every_structured_model_failure_uses_deterministic_fallback(
 ) -> None:
     wrapper = _wrapper()
     try:
-        controller = GemmaController(
+        controller = LlmController(
             _policy(catalog, 1),
             registry,
             cast(Actioner, FakeActioner(wrapper, registry, mode)),
@@ -190,7 +190,7 @@ def test_wait_bypasses_model(catalog: DirectiveCatalog, registry: Registry) -> N
     wrapper = _wrapper()
     try:
         actioner = FakeActioner(wrapper, registry, "timeout")
-        decision = GemmaController(
+        decision = LlmController(
             _policy(catalog, 0), registry, cast(Actioner, actioner)
         ).choose_action(wrapper)
         assert not actioner.called
@@ -215,7 +215,7 @@ def test_shared_execution_accepts_directive_without_frozen_policy_output(
         ).execute(context, catalog.by_id(1), wrapper)
 
         assert actioner.called
-        assert outcome.source == "gemma"
+        assert outcome.source == "llm"
         assert outcome.failure_code is None
         registry.validate_effect(1, context, outcome.action)
     finally:

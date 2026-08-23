@@ -1,19 +1,21 @@
 """Bounded compatibility-spike helpers, not production hybrid training code."""
 
-from warehouse_ai.compatibility.gemma import (
-    GEMMA_FALLBACK_ID,
-    GEMMA_FALLBACK_REVISION,
-    GEMMA_PRIMARY_ID,
-    GEMMA_PRIMARY_REVISION,
+from warehouse_ai.compatibility.llm import (
+    LLM_BASE_MODEL_ID,
+    LLM_GGUF_FILENAME,
+    LLM_GGUF_REPOSITORY,
+    LLM_GGUF_REVISION,
+    LLM_GGUF_SHA256,
     SoftTokenProjector,
-    run_tiny_gemma_probe,
+    run_tiny_llm_probe,
 )
 
 __all__ = [
-    "GEMMA_FALLBACK_ID",
-    "GEMMA_FALLBACK_REVISION",
-    "GEMMA_PRIMARY_ID",
-    "GEMMA_PRIMARY_REVISION",
+    "LLM_BASE_MODEL_ID",
+    "LLM_GGUF_FILENAME",
+    "LLM_GGUF_REPOSITORY",
+    "LLM_GGUF_REVISION",
+    "LLM_GGUF_SHA256",
     "SoftTokenProjector",
-    "run_tiny_gemma_probe",
+    "run_tiny_llm_probe",
 ]

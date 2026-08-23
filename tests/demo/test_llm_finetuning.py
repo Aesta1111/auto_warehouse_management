@@ -9,23 +9,23 @@ import torch
 
 from warehouse_ai.demo.contracts.configuration import load_ppo_fine_tuning_run
 from warehouse_ai.demo.contracts.directives import DirectiveCatalog
-from warehouse_ai.demo.contracts.finetuning import GemmaFineTuneConfig
+from warehouse_ai.demo.contracts.finetuning import LlmFineTuneConfig
 from warehouse_ai.demo.contracts.inference import (
     ActionerRequest,
     ActionerResult,
-    GemmaActionResponse,
+    LlmActionResponse,
 )
 from warehouse_ai.demo.contracts.ppo import PpoManifest
 from warehouse_ai.demo.directives import Registry, build_registry
 from warehouse_ai.demo.inference.actioner import Actioner
 from warehouse_ai.demo.ppo.finetuning import (
     FineTuneArtifactIdentity,
-    GemmaFineTuneLoop,
+    LlmFineTuneLoop,
     CHECKPOINT_NAME,
     load_fine_tuned_policy,
     warm_start_model,
 )
-from warehouse_ai.demo.ppo.gemma_environment import GemmaGymEnv
+from warehouse_ai.demo.ppo.llm_environment import LlmGymEnv
 from warehouse_ai.demo.ppo.model import PpoModel
 from warehouse_ai.demo.ppo.policy import PpoPolicy, TorchPolicyAdapter
 
@@ -37,7 +37,7 @@ ENVIRONMENT_ID = "tarware-tiny-3agvs-2pickers-partialobs-v1"
 class ValidActioner:
     def __init__(self, registry: Registry) -> None:
         self.registry = registry
-        self.environment: GemmaGymEnv | None = None
+        self.environment: LlmGymEnv | None = None
 
     def act(self, request: ActionerRequest) -> ActionerResult:
         assert self.environment is not None
@@ -47,7 +47,7 @@ class ValidActioner:
             self.environment.wrapper,
         )
         return ActionerResult(
-            response=GemmaActionResponse(
+            response=LlmActionResponse(
                 destinations=tuple(item.destination_id for item in action.actions),
                 reason="valid fake action",
             ),
@@ -57,9 +57,9 @@ class ValidActioner:
         )
 
 
-def _config() -> GemmaFineTuneConfig:
+def _config() -> LlmFineTuneConfig:
     original = load_ppo_fine_tuning_run(
-        Path("configs/demo/ppo-gemma-fine-tuning-run.yaml"), ROOT
+        Path("configs/demo/ppo-llm-fine-tuning-run.yaml"), ROOT
     ).runtime
     values = original.model_dump()
     values.update(
@@ -74,7 +74,7 @@ def _config() -> GemmaFineTuneConfig:
             "max_reference_kl": 1.0,
         }
     )
-    return GemmaFineTuneConfig.model_validate(values)
+    return LlmFineTuneConfig.model_validate(values)
 
 
 def _parent(catalog: DirectiveCatalog, observation_size: int) -> PpoPolicy:
@@ -112,7 +112,7 @@ def test_two_step_fake_fine_tune_saves_reloadable_child_checkpoint() -> None:
     catalog = DirectiveCatalog.load(ROOT / "configs/demo/directive-catalog.yaml")
     registry = build_registry(catalog)
     actioner = ValidActioner(registry)
-    environment = GemmaGymEnv(
+    environment = LlmGymEnv(
         ENVIRONMENT_ID,
         catalog,
         registry,
@@ -129,7 +129,7 @@ def test_two_step_fake_fine_tune_saves_reloadable_child_checkpoint() -> None:
     output = ROOT / "results" / f".test-finetune-{uuid4().hex}"
     output.mkdir(parents=False)
     try:
-        manifest = GemmaFineTuneLoop().fit(
+        manifest = LlmFineTuneLoop().fit(
             warm_start_model(config, catalog, parent),
             warm_start_model(config, catalog, parent),
             config,
@@ -146,8 +146,8 @@ def test_two_step_fake_fine_tune_saves_reloadable_child_checkpoint() -> None:
         )
 
         assert manifest.training.completed_environment_steps == 2
-        assert manifest.training.gemma_calls <= 2
-        assert manifest.schema_version == 2
+        assert manifest.training.llm_calls <= 2
+        assert manifest.schema_version == 3
         assert manifest.hyperparameters["hidden_sizes"] == [32, 16]
         assert loaded.checkpoint_sha256 == manifest.checkpoint_sha256
         bad_manifest = manifest.model_copy(

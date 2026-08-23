@@ -14,7 +14,7 @@ from warehouse_ai.demo.contracts.evaluation import DemoDecision
 from warehouse_ai.demo.contracts.inference import ActionerRequest, FailureCode
 from warehouse_ai.demo.controllers import (
     ExecutorController,
-    GemmaController,
+    LlmController,
 )
 from warehouse_ai.demo.directives import build_registry
 from warehouse_ai.demo.evaluation.episode import run_episode
@@ -100,7 +100,7 @@ def test_episode_counts_structured_failures_without_parsing_exception_names(
     ):
         wrapper = TarwareEnvWrapper(ENVIRONMENT_ID)
         try:
-            controller = GemmaController(
+            controller = LlmController(
                 _policy(catalog, 1),
                 registry,
                 cast(Actioner, FailingActioner(code)),

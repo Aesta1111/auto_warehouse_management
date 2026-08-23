@@ -1,4 +1,4 @@
-"""Evaluate parent and fine-tuned directive PPO with the same frozen Gemma."""
+"""Evaluate parent and fine-tuned directive PPO with the same frozen Llm."""
 
 from __future__ import annotations
 

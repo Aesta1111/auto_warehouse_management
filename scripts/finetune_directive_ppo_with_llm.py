@@ -1,4 +1,4 @@
-"""Fine-tune a pretrained directive PPO through the frozen Gemma actioner."""
+"""Fine-tune a pretrained directive PPO through the frozen Llm actioner."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 
 from warehouse_ai.demo.contracts.configuration import load_ppo_fine_tuning_run
-from warehouse_ai.demo.ppo.finetune_service import run_gemma_fine_tune
+from warehouse_ai.demo.ppo.finetune_service import run_llm_fine_tune
 
 
 def _repository_root() -> Path:
@@ -24,7 +24,7 @@ def main() -> None:
     args = parse_args()
     root = _repository_root()
     loaded = load_ppo_fine_tuning_run(args.config, root)
-    manifest = run_gemma_fine_tune(loaded.runtime, repository_root=root)
+    manifest = run_llm_fine_tune(loaded.runtime, repository_root=root)
     print(json.dumps(manifest.model_dump(mode="json"), indent=2, sort_keys=True))
 
 

@@ -15,5 +15,5 @@ uv run --no-sync python scripts/compare_tarware_summaries.py \
   results/summaries/phase1-tarware-local.json \
   results/summaries/phase1-tarware-linux-upstream.json \
   --output results/summaries/phase1-tarware-platform-comparison.json
-uv run --no-sync python scripts/probe_gemma_cloud.py \
-  --output results/summaries/phase1-gemma-a40.json
+uv run --no-sync python scripts/probe_llm_cloud.py \
+  --output results/summaries/phase1-llm-a40.json

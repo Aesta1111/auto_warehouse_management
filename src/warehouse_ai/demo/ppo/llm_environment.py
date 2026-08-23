@@ -1,4 +1,4 @@
-"""Gym environment executing PPO directives through frozen Gemma."""
+"""Gym environment executing PPO directives through frozen Llm."""
 
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ class FineTuneMetrics:
     def __init__(self) -> None:
         self.simulator_return = 0.0
         self.learning_return = 0.0
-        self.gemma_calls = 0
+        self.llm_calls = 0
         self.fallbacks = 0
         self.effect_violations = 0
         self.failure_counts: Counter[str] = Counter()
@@ -53,7 +53,7 @@ class FineTuneMetrics:
             optimizer_steps=optimizer_steps,
             simulator_return=self.simulator_return,
             learning_return=self.learning_return,
-            gemma_calls=self.gemma_calls,
+            llm_calls=self.llm_calls,
             fallbacks=self.fallbacks,
             effect_violations=self.effect_violations,
             failure_counts=dict(sorted(self.failure_counts.items())),
@@ -64,8 +64,8 @@ class FineTuneMetrics:
         )
 
 
-class GemmaGymEnv(GymEnv):
-    """Use the production Gemma validator/fallback path during PPO collection."""
+class LlmGymEnv(GymEnv):
+    """Use the production Llm validator/fallback path during PPO collection."""
 
     def __init__(
         self,
@@ -110,7 +110,7 @@ class GemmaGymEnv(GymEnv):
         learning_reward = simulator_reward - (
             self.fallback_penalty if outcome.failure_code is not None else 0.0
         )
-        attempted_gemma = directive_id != self.catalog.wait_directive_id
+        attempted_llm = directive_id != self.catalog.wait_directive_id
         self._step_count += 1
         self.total_steps += 1
         simulator_terminated = bool(all(terminated))
@@ -122,7 +122,7 @@ class GemmaGymEnv(GymEnv):
             outcome=outcome,
             simulator_reward=simulator_reward,
             learning_reward=learning_reward,
-            attempted_gemma=attempted_gemma,
+            attempted_llm=attempted_llm,
         )
         info = dict(simulator_info)
         info.update(
@@ -159,12 +159,12 @@ class GemmaGymEnv(GymEnv):
         outcome,
         simulator_reward: float,
         learning_reward: float,
-        attempted_gemma: bool,
+        attempted_llm: bool,
     ) -> None:
         self.metrics.simulator_return += simulator_reward
         self.metrics.learning_return += learning_reward
         self.metrics.directive_counts[command] += 1
-        self.metrics.gemma_calls += int(attempted_gemma)
+        self.metrics.llm_calls += int(attempted_llm)
         if outcome.failure_code is not None:
             code = outcome.failure_code.value
             self.metrics.fallbacks += 1

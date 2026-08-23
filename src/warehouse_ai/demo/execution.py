@@ -1,4 +1,4 @@
-"""Shared directive execution for evaluation and Gemma-in-the-loop training."""
+"""Shared directive execution for evaluation and Llm-in-the-loop training."""
 
 from __future__ import annotations
 
@@ -95,7 +95,7 @@ class ActionValidator:
 class ExecutionOutcome:
     action: JointAction
     reason: str
-    source: Literal["gemma", "directive_executor", "automatic_no_op"]
+    source: Literal["llm", "directive_executor", "automatic_no_op"]
     directive_effect_valid: bool
     result: ActionerResult | None = None
     failure_code: FailureCode | None = None
@@ -103,7 +103,7 @@ class ExecutionOutcome:
 
 
 class DirectiveExecutionService:
-    """Resolve a directive through Gemma or the deterministic executor."""
+    """Resolve a directive through Llm or the deterministic executor."""
 
     def __init__(self, registry: Registry, actioner: Actioner | None = None) -> None:
         self.registry = registry
@@ -148,7 +148,7 @@ class DirectiveExecutionService:
         return ExecutionOutcome(
             action=action,
             reason=result.response.reason,
-            source="gemma",
+            source="llm",
             directive_effect_valid=True,
             result=result,
         )

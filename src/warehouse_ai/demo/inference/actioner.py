@@ -11,10 +11,10 @@ from warehouse_ai.demo.contracts.inference import (
     ActionerRequest,
     ActionerResult,
     FailureCode,
-    GemmaActionResponse,
+    LlmActionResponse,
 )
 from warehouse_ai.demo.inference.backend import InferenceError, ModelBackend
-from warehouse_ai.demo.inference.prompting import GemmaPromptBuilder
+from warehouse_ai.demo.inference.prompting import LlmPromptBuilder
 
 
 class ActionerError(RuntimeError):
@@ -27,8 +27,8 @@ class Actioner(Protocol):
     def act(self, request: ActionerRequest) -> ActionerResult: ...
 
 
-class GemmaActioner:
-    def __init__(self, backend: ModelBackend, prompts: GemmaPromptBuilder) -> None:
+class LlmActioner:
+    def __init__(self, backend: ModelBackend, prompts: LlmPromptBuilder) -> None:
         self.backend = backend
         self.prompts = prompts
 
@@ -39,7 +39,7 @@ class GemmaActioner:
             raise ActionerError(exc.code, str(exc)) from exc
         try:
             decoded = json.loads(generated.raw_text)
-            response = GemmaActionResponse.model_validate(decoded)
+            response = LlmActionResponse.model_validate(decoded)
         except (json.JSONDecodeError, ValidationError) as exc:
             raise ActionerError(
                 FailureCode.MALFORMED_RESPONSE,
