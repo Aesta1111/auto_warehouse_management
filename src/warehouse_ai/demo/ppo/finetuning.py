@@ -292,6 +292,7 @@ class GemmaFineTuneLoop:
             train_seeds=config.train_seeds,
             selection_seeds=config.selection_seeds,
             confirmation_seeds=config.confirmation_seeds,
+            final_evaluation_seeds=config.final_evaluation_seeds,
             algorithm_seed=config.algorithm_seed,
             reward_version=config.reward_version,
             fallback_penalty=config.fallback_penalty,

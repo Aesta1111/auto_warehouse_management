@@ -1,0 +1,6 @@
+schema_version: 1
+fine_tune_config_path: configs/demo/directive-ppo-gemma-finetune-v1.yaml
+fine_tune_checkpoint_path: results/demo/directive-ppo-gemma-finetune-v1/directive-ppo-gemma-finetuned-v1.pt
+fine_tune_manifest_path: results/demo/directive-ppo-gemma-finetune-v1/directive-ppo-gemma-finetune-manifest-v1.json
+partition: final
+output_directory: results/demo

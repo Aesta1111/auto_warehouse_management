@@ -24,6 +24,7 @@ from warehouse_ai.demo.contracts.base import (
     validate_seed_partition,
 )
 from warehouse_ai.demo.contracts.inference import LlamaCppBackendConfig
+from warehouse_ai.demo.contracts.evaluation import EpisodeResult
 
 
 class GemmaFineTuneConfig(DemoModel):
@@ -40,6 +41,7 @@ class GemmaFineTuneConfig(DemoModel):
     train_seeds: tuple[int, ...]
     selection_seeds: tuple[int, ...]
     confirmation_seeds: tuple[int, ...]
+    final_evaluation_seeds: tuple[int, ...]
     algorithm_seed: int = 8300
     episode_steps: PositiveInt = 500
     total_timesteps: PositiveInt = 1_024
@@ -62,7 +64,12 @@ class GemmaFineTuneConfig(DemoModel):
     )
     inference: LlamaCppBackendConfig
 
-    @field_validator("train_seeds", "selection_seeds", "confirmation_seeds")
+    @field_validator(
+        "train_seeds",
+        "selection_seeds",
+        "confirmation_seeds",
+        "final_evaluation_seeds",
+    )
     @classmethod
     def validate_seeds(cls, value: Sequence[int], info: Any) -> tuple[int, ...]:
         return validate_seed_partition(value, info.field_name)
@@ -73,6 +80,7 @@ class GemmaFineTuneConfig(DemoModel):
             "train": set(self.train_seeds),
             "selection": set(self.selection_seeds),
             "confirmation": set(self.confirmation_seeds),
+            "final": set(self.final_evaluation_seeds),
         }
         names = tuple(partitions)
         for index, name in enumerate(names):
@@ -124,6 +132,7 @@ class GemmaFineTuneManifest(DemoModel):
     train_seeds: tuple[int, ...]
     selection_seeds: tuple[int, ...]
     confirmation_seeds: tuple[int, ...]
+    final_evaluation_seeds: tuple[int, ...]
     algorithm_seed: int
     reward_version: NonBlankStr
     fallback_penalty: NonNegativeFloat
@@ -134,7 +143,12 @@ class GemmaFineTuneManifest(DemoModel):
     dirty_worktree: bool
     created_at_utc: UtcDateTime
 
-    @field_validator("train_seeds", "selection_seeds", "confirmation_seeds")
+    @field_validator(
+        "train_seeds",
+        "selection_seeds",
+        "confirmation_seeds",
+        "final_evaluation_seeds",
+    )
     @classmethod
     def validate_seeds(cls, value: Sequence[int], info: Any) -> tuple[int, ...]:
         return validate_seed_partition(value, info.field_name)
@@ -156,3 +170,54 @@ class FineTuneStepRecord(DemoModel):
     source: Literal["gemma", "directive_executor", "automatic_no_op"]
     failure_code: str | None = None
     llm_latency_ms: NonNegativeFloat | None = None
+
+
+class FineTuneEvaluationConfig(DemoModel):
+    schema_version: Literal[1] = 1
+    fine_tune_config_path: RepositoryPath
+    fine_tune_checkpoint_path: RepositoryPath
+    fine_tune_manifest_path: RepositoryPath
+    partition: Literal["selection", "confirmation", "final"]
+    output_directory: RepositoryPath
+
+
+class FineTunePolicyEvaluation(DemoModel):
+    policy: Literal["parent", "fine_tuned"]
+    executor_episodes: tuple[EpisodeResult, ...] = Field(min_length=1)
+    gemma_episodes: tuple[EpisodeResult, ...] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_pairs(self) -> Self:
+        executor_seeds = tuple(item.seed for item in self.executor_episodes)
+        gemma_seeds = tuple(item.seed for item in self.gemma_episodes)
+        if executor_seeds != gemma_seeds:
+            raise ValueError("executor and Gemma episode seeds must match")
+        return self
+
+
+class FineTuneComparisonSummary(DemoModel):
+    schema_version: Literal[1] = 1
+    environment_id: NonBlankStr
+    partition: Literal["selection", "confirmation", "final"]
+    seeds: tuple[int, ...]
+    parent_checkpoint_sha256: Sha256
+    fine_tuned_checkpoint_sha256: Sha256
+    prompt_contract_sha256: Sha256
+    preflight_report_sha256: Sha256
+    parent: FineTunePolicyEvaluation
+    fine_tuned: FineTunePolicyEvaluation
+    candidate_better: bool
+    output_directory: RepositoryPath
+
+    @field_validator("seeds")
+    @classmethod
+    def validate_seeds(cls, value: Sequence[int]) -> tuple[int, ...]:
+        return validate_seed_partition(value, "seeds")
+
+    @model_validator(mode="after")
+    def validate_episode_seeds(self) -> Self:
+        for evaluation in (self.parent, self.fine_tuned):
+            actual = tuple(item.seed for item in evaluation.gemma_episodes)
+            if actual != self.seeds:
+                raise ValueError("comparison episode seeds must match summary seeds")
+        return self

@@ -17,7 +17,10 @@ from warehouse_ai.demo.contracts.directives import (
     DirectiveCatalog,
 )
 from warehouse_ai.demo.contracts.evaluation import DemoConfig
-from warehouse_ai.demo.contracts.finetuning import GemmaFineTuneConfig
+from warehouse_ai.demo.contracts.finetuning import (
+    FineTuneEvaluationConfig,
+    GemmaFineTuneConfig,
+)
 from warehouse_ai.demo.contracts.inference import LlamaCppBackendConfig
 from warehouse_ai.demo.contracts.ppo import PpoConfig
 from warehouse_ai.domain import ActionMask, AgentObservation, AgentRole, Position
@@ -41,6 +44,13 @@ def test_committed_versioned_configs_load() -> None:
     fine_tune = load_yaml_config(
         ROOT / "configs/demo/directive-ppo-gemma-finetune-v1.yaml",
         GemmaFineTuneConfig,
+    )
+    fine_tune_evaluations = tuple(
+        load_yaml_config(
+            ROOT / f"configs/demo/directive-ppo-gemma-eval-{partition}-v1.yaml",
+            FineTuneEvaluationConfig,
+        )
+        for partition in ("selection", "confirmation", "final")
     )
 
     assert catalog.size == 4
@@ -88,6 +98,12 @@ def test_committed_versioned_configs_load() -> None:
     assert fine_tune.fallback_penalty == pytest.approx(0.001)
     assert fine_tune.selection_seeds == (8200, 8201)
     assert fine_tune.confirmation_seeds == (8202, 8203)
+    assert fine_tune.final_evaluation_seeds == (9100,)
+    assert tuple(item.partition for item in fine_tune_evaluations) == (
+        "selection",
+        "confirmation",
+        "final",
+    )
 
 
 def test_gemma_fine_tune_config_rejects_overlapping_partitions() -> None:
