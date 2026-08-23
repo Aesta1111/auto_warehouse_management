@@ -133,13 +133,21 @@ RunPod, and the result is recorded in the PR and research log.
 
 - Human-authored experiment inputs are YAML.
 - Pydantic validates them before environment or model initialization.
+- Reusable component configs own model/actioner identity; runnable configs
+  reference them by repository-relative path instead of copying their fields.
+- The directive prototype uses `ppo-model.yaml`, `llm-actioner.yaml`,
+  `ppo-training-run.yaml`, `ppo-gemma-fine-tuning-run.yaml`, and
+  `ppo-gemma-evaluation-run.yaml`. One evaluation config is selected with an
+  explicit `selection`, `confirmation`, or `final` CLI partition.
 - Each run writes the fully resolved configuration; the original YAML alone is
   insufficient provenance.
 - Unknown fields are errors rather than silently ignored typos.
 - Paths in committed configs are repository-relative or artifact identifiers,
   not personal absolute paths.
 - Secrets and access tokens never appear in YAML.
-- Configuration schema changes require a version increment and migration note.
+- Component/run config schemas and generated artifact schemas are versioned
+  independently. Changing a reusable component changes every run that
+  references it and therefore requires new artifact provenance.
 
 Core final-evaluation configs are frozen before held-out seeds are run. Any later
 change creates a new experiment ID rather than overwriting old results.

@@ -503,9 +503,19 @@ optimization components. The 2026-08-22 architecture refactor moved these into
 training composition, and retained SB3 behind a lazy reference adapter. Its
 schema-v3 replacement checkpoint passed the original seed and coverage gates;
 the schema-v1/v2 checkpoints remain immutable reference artifacts.
-A schema-v4 PPO contract now replaces each fixed one-hidden-layer branch with
+The active prototype YAML is now composed by responsibility rather than copied
+across a schema-numbered file ladder. `ppo-model.yaml` owns the reusable PPO
+architecture, `llm-actioner.yaml` owns the frozen Gemma/prompt/runtime contract,
+and separate descriptive files own baseline training, Gemma-in-the-loop PPO
+fine-tuning, and evaluation runs. The evaluation file is shared by preflight,
+the matched demo, and explicit selection/confirmation/final comparisons. The
+catalog, prompt, and probe remain separate immutable support contracts.
+Generated manifests and historical result records retain their artifact schema
+versions and digests; removing the obsolete input YAML files does not change
+the evidence those records describe.
+The current PPO artifact contract replaces each fixed one-hidden-layer branch with
 separate policy and value `Mlp` modules whose common positive `hidden_sizes`
-sequence is configuration-owned. The initial schema-v4 config declares `[64]`,
+sequence comes from `ppo-model.yaml`. The active model config declares `[64]`,
 so its effective depth and width match schema v3; this is infrastructure for
 controlled later architecture changes, not evidence that a larger policy is
 better. Schema-v1-v3 manifests and checkpoints retain their original digests
@@ -525,11 +535,12 @@ continues to use the pinned llama.cpp E4B GGUF runtime. A compact prompt failed
 the preflight, so the proven wording was retained with dynamically derived role
 groups. The passing rerun achieved 5/5 validity, 6/6 sensitivity, and 3.538 s
 p95 against the 3.92 s limit. No alternate inference dependency was added.
-An isolated schema-v3 prompt path now preserves that byte-stable schema-v2
-legacy prompt while adding a separate, digest-verified few-shot prompt contract.
+The active LLM actioner selects the separate, digest-verified few-shot prompt
+contract. The byte-stable legacy builder remains internal for historical prompt
+verification, but it no longer has an active YAML run configuration.
 The frozen directive catalog still owns `description` for artifact identity,
 logging, and fallback reasons; the new prompt spec owns one richer `instruction`
-and one synthetic five-agent example for each behavior key. Schema-v3 requests
+and one synthetic five-agent example for each behavior key. Few-shot requests
 use four user/assistant example pairs before the full live-state request and do
 not expose the catalog description. This is infrastructure only: no schema-v3
 Gemma preflight or matched episode has run, so the 2026-08-22 negative result
@@ -538,7 +549,7 @@ An additional prototype-only extension may warm-start a copy of a frozen
 schema-v4 directive PPO and perform 1,024 on-policy steps with the frozen Gemma
 actioner in the environment. This is PPO adaptation, not Gemma weight
 fine-tuning: the model file, prompt contract, decoding settings, catalog, and
-parent PPO checkpoint remain immutable. Its versioned configuration uses only
+parent PPO checkpoint remain immutable. Its run configuration uses only
 parent training seeds, splits parent validation seeds into selection and
 confirmation partitions, and reserves seed 9100 for a final descriptive
 comparison. Gemma failures use the same strict validator and deterministic

@@ -84,10 +84,21 @@ uv run python scripts/probe_gemma_tiny.py
 
 ## Directive prototype probe
 
+The active prototype configuration is composed from five descriptive files:
+
+- `ppo-model.yaml`: PPO network shape and implementation identity.
+- `llm-actioner.yaml`: frozen Gemma model, prompt, decoding, and runtime limits.
+- `ppo-training-run.yaml`: baseline PPO seeds, optimization, and outputs.
+- `ppo-gemma-fine-tuning-run.yaml`: warm start, adaptation budget, and seed gates.
+- `ppo-gemma-evaluation-run.yaml`: preflight, matched demo, and gated evaluation.
+
+The catalog, few-shot prompt, and semantics-probe files are immutable supporting
+contracts rather than runnable experiment configurations.
+
 The isolated prototype's Phase 2 registry and live-seed probe can be rerun with:
 
 ```powershell
-uv run python scripts/probe_directives.py --config configs/demo/directive-probe-v1.yaml
+uv run python scripts/probe_directives.py --config configs/demo/directive-semantics-probe.yaml --output results/summaries/directive-semantics-probe-report.json
 ```
 
 This checks the frozen four-directive catalog and deterministic executor
@@ -97,21 +108,17 @@ not a scientific baseline or a main-project phase completion.
 Train the isolated directive PPO policy with the committed prototype seeds:
 
 ```powershell
-uv run python scripts/train_directive_ppo.py --config configs/demo/directive-ppo-v1.yaml
-uv run python scripts/train_directive_ppo.py --config configs/demo/directive-ppo-v2.yaml
-uv run python scripts/train_directive_ppo.py --config configs/demo/directive-ppo-v3.yaml
-uv run python scripts/train_directive_ppo.py --config configs/demo/directive-ppo-v4.yaml
+uv run python scripts/train_directive_ppo.py --config configs/demo/ppo-training-run.yaml
 ```
 
-The command writes a small manifest and an ignored checkpoint under
-the matching versioned directory. Version 1 preserves the SB3 reference;
-versions 2 and 3 preserve the measured repository-owned checkpoints. Version 4
-introduces separate config-driven policy/value MLPs and declares
-`hidden_sizes: [64]`. Running v4 is a full PPO training job, not an ordinary
-quality check, and must write a new artifact rather than overwrite v3.
+`ppo-training-run.yaml` owns seeds, optimizer settings, environment, and output;
+it references `ppo-model.yaml`, which owns the independent policy/value MLP
+architecture and implementation identity. Running it is a full PPO training
+job, not an ordinary quality check, and writes `ppo-policy.pt` plus
+`ppo-training-manifest.json` under the configured output directory.
 Each manifest records catalog and behavior digests, seed partitions, package
 versions, validation metrics, and the checkpoint SHA-256. Gemma/actioner phases
-are intentionally not included in either command.
+are intentionally not included in this command.
 
 Prepare and start the real local Gemma/llama.cpp actioner on a Windows NVIDIA
 machine from two terminals. The `start-gemma` subcommand downloads the pinned
@@ -128,11 +135,12 @@ Keep that server terminal open. In a second terminal, run the real local
 Gemma preflight separately before the demo:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\probe_gemma_actioner.py --config configs\demo\directive-demo-v1.yaml
+.\.venv\Scripts\python.exe scripts\probe_gemma_actioner.py --config configs\demo\ppo-gemma-evaluation-run.yaml
 ```
 
-The pending few-shot/MLP path instead uses `configs\demo\directive-demo-v4.yaml`
-after the PPO-v4 checkpoint and manifest exist. That live preflight has not run.
+The evaluation run resolves the reusable `llm-actioner.yaml` and
+`gemma-actioner-few-shot-prompt.yaml`. It remains blocked until the new PPO
+checkpoint and manifest exist; this live preflight has not run.
 
 The preflight writes the configured report only after checking health, model
 identity, strict responses, directive sensitivity, and p95 latency. An E4B
@@ -143,7 +151,7 @@ Run the matched, unscored demonstration only after the preflight report passes
 and the local server is still running:
 
 ```powershell
-uv run python scripts/run_directive_demo.py --config configs/demo/directive-demo-v1.yaml
+uv run python scripts/run_directive_demo.py --config configs/demo/ppo-gemma-evaluation-run.yaml
 ```
 
 The runner uses the same seed and frozen directive PPO checkpoint for the
@@ -152,11 +160,12 @@ flushed decision JSONL plus small atomic summaries under a unique
 `results/demo/<run-id>/` directory and never computes a statistical or
 improvement claim.
 
-After training PPO v4 and producing a passing schema-v4 preflight, the optional PPO adaptation can
-be started explicitly while the same pinned server remains running:
+After training the configured PPO and producing a passing preflight, the
+optional PPO adaptation can be started explicitly while the same pinned server
+remains running:
 
 ```powershell
-uv run python scripts/finetune_directive_ppo_with_gemma.py --config configs/demo/directive-ppo-gemma-finetune-v2.yaml
+uv run python scripts/finetune_directive_ppo_with_gemma.py --config configs/demo/ppo-gemma-fine-tuning-run.yaml
 ```
 
 This is an estimated one-hour live run and is never part of tests or ordinary
@@ -167,12 +176,14 @@ seed partitions do not match.
 Run paired selection evaluation only after the child manifest exists:
 
 ```powershell
-uv run python scripts/evaluate_gemma_finetuned_ppo.py --config configs/demo/directive-ppo-gemma-eval-selection-v2.yaml
+uv run python scripts/evaluate_gemma_finetuned_ppo.py --config configs/demo/ppo-gemma-evaluation-run.yaml --partition selection
 ```
 
-Use the separate confirmation config only if selection passes. Do not use the
-final seed-9100 config until confirmation passes. Each paired evaluation is a
-live Gemma job and is intentionally excluded from automated tests.
+Change `--partition` to `confirmation` only if selection passes, and to `final`
+only if confirmation passes. The single evaluation config declares both
+prerequisite summaries, and the runner fails closed if a gate is missing or
+failed. Each paired evaluation is a live Gemma job and is intentionally
+excluded from automated tests.
 
 The deferred RunPod command is `bash scripts/run_phase1_cloud.sh` from an exact
 checked-out project commit.

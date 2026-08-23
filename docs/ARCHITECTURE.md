@@ -179,6 +179,22 @@ Every authoritative run records:
 - Hugging Face repository IDs and immutable artifact revisions.
 - Output file paths, status, duration, and failure summary.
 
+### Directive-prototype configuration composition
+
+The directive prototype separates reusable components from executable runs.
+`ppo-model.yaml` owns the PPO MLP shape and implementation identity, while
+`llm-actioner.yaml` owns the frozen Gemma identity, prompt, decoding settings,
+and llama.cpp runtime. `ppo-training-run.yaml`,
+`ppo-gemma-fine-tuning-run.yaml`, and `ppo-gemma-evaluation-run.yaml` reference
+those components and own only their run-specific seeds, budgets, artifact
+paths, and gates. Loaders resolve the graph into the existing strict runtime
+contracts before importing Torch, Lightning, or httpx.
+
+The single evaluation run supplies preflight and matched-demo context and is
+also used with an explicit selection, confirmation, or final partition for the
+paired parent/child comparison. This prevents duplicated actioner settings and
+keeps later partitions fail-closed behind their declared prerequisite summary.
+
 ## Controller behavior
 
 ### Heuristic
@@ -207,13 +223,14 @@ and model structure have one-way module boundaries under `demo/ppo/`. Lightning
 Fabric is imported only inside training orchestration. This prototype boundary
 does not replace the main project's PPO architecture decision.
 
-The untrained schema-v4 extension composes independent policy and value `Mlp`
-modules from a shared config-owned `hidden_sizes` sequence. Linear layers live
+The untrained configurable-MLP extension composes independent policy and value
+`Mlp` modules from the shared `ppo-model.yaml` `hidden_sizes` sequence. Linear layers live
 in `nn.ModuleList`, `tanh` is applied only between layers, and the final hidden
 activation remains the exposed latent. Its initial `[64]` setting is
-mathematically equivalent to the schema-v3 branch shape. Historical schema-v2
-and schema-v3 checkpoints keep their identities and load through an explicit
-one-layer state-key migration.
+mathematically equivalent to the measured schema-v3 branch shape. Generated
+manifests retain artifact schema versions, and historical schema-v2/schema-v3
+checkpoints keep their identities and load through an explicit one-layer
+state-key migration; active YAML filenames no longer encode that history.
 
 The rest of the demo follows the same small-boundary layout:
 

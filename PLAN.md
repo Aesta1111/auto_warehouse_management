@@ -403,11 +403,14 @@ Create the following prototype-only modules:
 
 ```text
 configs/demo/
-|-- directives-v1.yaml
-|-- directive-probe-v2.yaml
-|-- directive-ppo-v3.yaml       # Plain-PyTorch/Fabric replacement
-|-- directive-ppo-v4.yaml       # Configurable MLP successor; untrained
-`-- directive-demo-v4.yaml      # PPO-v4/few-shot preflight and demo
+|-- directive-catalog.yaml
+|-- directive-semantics-probe.yaml
+|-- gemma-actioner-few-shot-prompt.yaml
+|-- ppo-model.yaml
+|-- llm-actioner.yaml
+|-- ppo-training-run.yaml
+|-- ppo-gemma-fine-tuning-run.yaml
+`-- ppo-gemma-evaluation-run.yaml
 src/warehouse_ai/demo/
 |-- contracts/         # Phase-grouped immutable records and configuration
 |-- directives/        # Directive table, engine, and live probe
@@ -1142,7 +1145,8 @@ catalog, behavior, architecture, and implementation digests before loading
 the state dictionary on CPU.
 
 Advance `PpoConfig` and `PpoManifest` to schema version 2 and
-write `configs/demo/directive-ppo-v2.yaml`. Add explicit fields for
+write a dedicated Phase 3.5 run config (since retired by the composed config
+system). Add explicit fields for
 `value_coefficient`, `max_grad_norm`, `normalize_advantage`, optional
 `target_kl`, model implementation version, buffer schema version, GAE version,
 loss version, and backend identity. Preserve the Phase 3 v1 config, SB3 zip,
@@ -1396,21 +1400,22 @@ checkpoints remain ignored.
 Each script returns exit code zero only when its stated artifact is complete:
 
 ```text
-python scripts/probe_directives.py --config configs/demo/directive-probe-v2.yaml --output results/summaries/directive-probe-report-v2.json
-python scripts/train_directive_ppo.py --config configs/demo/directive-ppo-v4.yaml --output results/demo/directive-ppo-v4
-python scripts/probe_gemma_actioner.py --config configs/demo/directive-demo-v4.yaml
+python scripts/probe_directives.py --config configs/demo/directive-semantics-probe.yaml --output results/summaries/directive-semantics-probe-report.json
+python scripts/train_directive_ppo.py --config configs/demo/ppo-training-run.yaml
+python scripts/probe_gemma_actioner.py --config configs/demo/ppo-gemma-evaluation-run.yaml
 python scripts/run_directive_demo.py start-gemma --prepare
-python scripts/run_directive_demo.py --config configs/demo/directive-demo-v4.yaml
+python scripts/run_directive_demo.py --config configs/demo/ppo-gemma-evaluation-run.yaml
+python scripts/finetune_directive_ppo_with_gemma.py --config configs/demo/ppo-gemma-fine-tuning-run.yaml
+python scripts/evaluate_gemma_finetuned_ppo.py --config configs/demo/ppo-gemma-evaluation-run.yaml --partition selection
 ```
 
 - `probe_directives.py` exercises applicability, executors, and action effects
   across representative seeded trajectories and writes coverage only; it does
   not train.
-- `train_directive_ppo.py` validates the catalog spike output, trains,
-  evaluates, and writes a checkpoint manifest. The v1 config reproduces the
-  Phase 3 SB3 reference; v3 is the measured plain-PyTorch/Fabric replacement;
-  v4 is the untrained config-controlled MLP successor and must create new
-  artifacts.
+- `train_directive_ppo.py` resolves `ppo-training-run.yaml` with
+  `ppo-model.yaml`, trains, evaluates, and writes a checkpoint manifest. The
+  configured MLP successor remains untrained and must create new artifacts;
+  historical checkpoint manifests keep their original schema identities.
 - `probe_gemma_actioner.py` performs E4B preflight and directive sensitivity;
   it exits with a distinct documented code indicating that E2B should be used.
 - `run_directive_demo.py start-gemma` delegates preparation and serving to the
@@ -1485,7 +1490,7 @@ Deliverables:
   changes.
 
 Gate: `probe_directives.py` produces a passing report for all committed probe
-seeds. Freeze `directives-v1.yaml` and the behavior version before Phase 3.
+seeds. Freeze `directive-catalog.yaml` and the behavior version before Phase 3.
 
 #### Phase 3: Directive PPO
 
@@ -1539,7 +1544,7 @@ Create:
   `PpoManifest` fields for implementation provenance.
 - In `ppo.py`: the refactored `PpoPolicy` adapter and stable public
   training/evaluation functions.
-- `configs/demo/directive-ppo-v2.yaml` using the same seeds, episode length,
+- A historical schema-v2 run config using the same seeds, episode length,
   training budget, architecture, and checkpoint-selection rule as Phase 3.
 
 Phase 3.5 may depend on Phases 1-3, PyTorch, and the bounded Lightning package.
@@ -1567,7 +1572,7 @@ Deliverables:
 - A dated research-log entry compares the new run descriptively with the Phase
   3 SB3 reference and records implementation cost or failed attempts.
 
-Gate: `train_directive_ppo.py` using `directive-ppo-v2.yaml` creates a
+Gate: the historical Phase 3.5 training run creates a
 digest-verified schema-v2 checkpoint, the focused and repository quality gates
 pass, and validation still selects at least two non-wait directives with zero
 inapplicable selections. Phase 4 must consume only this Phase 3.5 checkpoint.

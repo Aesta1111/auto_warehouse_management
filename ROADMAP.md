@@ -64,6 +64,8 @@ complete, and its seeds remain excluded from later scientific evaluation.
   gates, and paired partitioned evaluation.
 - [x] Add schema-v4 configurable-MLP PPO infrastructure with an initial `[64]`
   architecture and legacy schema-v2/v3 checkpoint loading.
+- [x] Replace the prototype's copied version ladder with composed PPO-model,
+  LLM-actioner, PPO-training, PPO-fine-tuning, and evaluation run configs.
 - [ ] Train and validate the schema-v4 deterministic PPO parent without
   overwriting the schema-v3 evidence.
 - [ ] Run and record the schema-v4 all-directive preflight and a separately
@@ -121,13 +123,22 @@ shape, and initially retain the effective `[64]` schema-v3 architecture. The
 schema-v3 checkpoint remains the latest validated evidence until a separately
 versioned schema-v4 training run is completed and recorded.
 
+The active prototype configs were consolidated on 2026-08-23 without running
+PPO, llama.cpp, Gemma, or an episode. Reusable PPO and actioner settings now
+live in one component file each; three descriptive run files own baseline
+training, Gemma-in-the-loop fine-tuning, and evaluation. One evaluation file
+serves preflight, matched demo, and explicitly selected gated partitions. The
+historical research log and artifact schemas remain unchanged evidence.
+
 Gemma-in-the-loop PPO adaptation infrastructure was added on 2026-08-23 without
 starting llama.cpp. It warm-starts a separate child policy, uses the production
 validation/fallback service, records simulator and learning rewards separately,
 guards divergence from the parent, and provides paired selection, confirmation,
 and final evaluation configs. Its v2 path now fails closed unless the untrained
 schema-v4 parent and matching schema-v4 preflight exist. Gemma remains frozen.
-These implementation gates do not establish that adaptation is useful.
+These implementation gates do not establish that adaptation is useful. The
+new descriptive filenames identify the same deferred future experiment rather
+than a completed run.
 
 ## Phase 2: runnable project foundation
 
