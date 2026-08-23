@@ -117,7 +117,7 @@ class GemmaPromptBuilder:
         }
 
     def build(self, request: ActionerRequest) -> PromptEnvelope:
-        directive = request.prediction.directive
+        directive = request.directive
         if self.prompt_spec is None:
             return self._build_legacy(request)
         prompt_directive = self.prompt_spec.by_behavior_key(directive.behavior_key)
@@ -153,7 +153,7 @@ class GemmaPromptBuilder:
         )
 
     def _build_legacy(self, request: ActionerRequest) -> PromptEnvelope:
-        directive = request.prediction.directive
+        directive = request.directive
         return PromptEnvelope(
             messages=(
                 ChatMessage(role="system", content=_SYSTEM_MESSAGE),
@@ -176,7 +176,7 @@ class GemmaPromptBuilder:
         directive_label: str,
         directive_text: str,
     ) -> str:
-        directive = request.prediction.directive
+        directive = request.directive
         payload = self.state_payload(
             request.context,
             directive={

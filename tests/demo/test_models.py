@@ -17,6 +17,7 @@ from warehouse_ai.demo.contracts.directives import (
     DirectiveCatalog,
 )
 from warehouse_ai.demo.contracts.evaluation import DemoConfig
+from warehouse_ai.demo.contracts.finetuning import GemmaFineTuneConfig
 from warehouse_ai.demo.contracts.inference import LlamaCppBackendConfig
 from warehouse_ai.demo.contracts.ppo import PpoConfig
 from warehouse_ai.domain import ActionMask, AgentObservation, AgentRole, Position
@@ -37,6 +38,10 @@ def test_committed_versioned_configs_load() -> None:
     ppo_v3 = load_yaml_config(ROOT / "configs/demo/directive-ppo-v3.yaml", PpoConfig)
     demo_v2 = load_yaml_config(ROOT / "configs/demo/directive-demo-v2.yaml", DemoConfig)
     demo_v3 = load_yaml_config(ROOT / "configs/demo/directive-demo-v3.yaml", DemoConfig)
+    fine_tune = load_yaml_config(
+        ROOT / "configs/demo/directive-ppo-gemma-finetune-v1.yaml",
+        GemmaFineTuneConfig,
+    )
 
     assert catalog.size == 4
     assert catalog.by_id(catalog.wait_directive_id).command == "wait"
@@ -78,6 +83,23 @@ def test_committed_versioned_configs_load() -> None:
     assert demo_v3.prompt_spec_path == Path(
         "configs/demo/gemma-prompt-few-shot-v1.yaml"
     )
+    assert fine_tune.total_timesteps == 1_024
+    assert fine_tune.n_steps == 256
+    assert fine_tune.fallback_penalty == pytest.approx(0.001)
+    assert fine_tune.selection_seeds == (8200, 8201)
+    assert fine_tune.confirmation_seeds == (8202, 8203)
+
+
+def test_gemma_fine_tune_config_rejects_overlapping_partitions() -> None:
+    config = load_yaml_config(
+        ROOT / "configs/demo/directive-ppo-gemma-finetune-v1.yaml",
+        GemmaFineTuneConfig,
+    )
+    values = config.model_dump()
+    values["confirmation_seeds"] = (8201, 8203)
+
+    with pytest.raises(ValueError, match="selection and confirmation seeds overlap"):
+        GemmaFineTuneConfig.model_validate(values)
 
 
 def test_contract_import_does_not_load_ml_or_transport_frameworks() -> None:

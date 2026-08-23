@@ -19,7 +19,11 @@ from pydantic import (
 )
 
 from warehouse_ai.demo.contracts.base import DemoModel, NonBlankStr, Sha256, UtcDateTime
-from warehouse_ai.demo.contracts.directives import WarehouseContext, PpoPolicyOutput
+from warehouse_ai.demo.contracts.directives import (
+    Directive,
+    WarehouseContext,
+    PpoPolicyOutput,
+)
 
 
 class FailureCode(str, Enum):
@@ -35,13 +39,26 @@ class FailureCode(str, Enum):
 
 class ActionerRequest(DemoModel):
     context: WarehouseContext
-    prediction: PpoPolicyOutput
+    prediction: PpoPolicyOutput | None = None
+    selected_directive: Directive | None = None
 
     @model_validator(mode="after")
     def validate_prediction_state(self) -> Self:
-        if self.context.state_id != self.prediction.state_id:
+        if (self.prediction is None) == (self.selected_directive is None):
+            raise ValueError("exactly one directive source is required")
+        if (
+            self.prediction is not None
+            and self.context.state_id != self.prediction.state_id
+        ):
             raise ValueError("actioner request context and prediction states differ")
         return self
+
+    @property
+    def directive(self) -> Directive:
+        if self.prediction is not None:
+            return self.prediction.directive
+        assert self.selected_directive is not None
+        return self.selected_directive
 
 
 class GemmaActionResponse(DemoModel):
