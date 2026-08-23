@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import torch
 
-from warehouse_ai.demo.ppo_buffer import DirectiveRolloutBuffer
+from warehouse_ai.demo.ppo.buffer import DirectiveRolloutBuffer
 
 
 def _add(buffer: DirectiveRolloutBuffer, index: int) -> None:

@@ -4,8 +4,8 @@ import math
 
 import torch
 
-from warehouse_ai.demo.ppo_buffer import PpoBatch
-from warehouse_ai.demo.ppo_math import compute_gae, compute_ppo_loss
+from warehouse_ai.demo.ppo.buffer import PpoBatch
+from warehouse_ai.demo.ppo.math import compute_gae, compute_ppo_loss
 
 
 def test_gae_distinguishes_termination_truncation_and_rollout_boundary() -> None:

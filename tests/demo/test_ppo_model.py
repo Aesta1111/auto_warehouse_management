@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import torch
 
-from warehouse_ai.demo.ppo_model import DirectivePpoModule
+from warehouse_ai.demo.ppo.model import DirectivePpoModule
 
 
 def _module() -> DirectivePpoModule:
