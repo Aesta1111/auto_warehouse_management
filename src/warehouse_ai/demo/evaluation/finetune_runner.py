@@ -47,6 +47,15 @@ def _load_manifest(path: Path) -> GemmaFineTuneManifest:
         raise ValueError(f"could not load fine-tuning manifest {path}") from exc
 
 
+def _load_comparison(path: Path) -> FineTuneComparisonSummary:
+    try:
+        return FineTuneComparisonSummary.model_validate_json(
+            path.read_text(encoding="utf-8")
+        )
+    except (OSError, ValueError) as exc:
+        raise ValueError(f"could not load prerequisite comparison {path}") from exc
+
+
 def _partition_seeds(
     config: GemmaFineTuneConfig,
     partition: str,
@@ -99,6 +108,29 @@ def _verify_child(
         verified.parent_manifest,
         manifest,
     )
+
+
+def verify_evaluation_prerequisite(
+    root: Path,
+    evaluation: FineTuneEvaluationConfig,
+    child_manifest: GemmaFineTuneManifest,
+) -> None:
+    """Require a passing exact prior partition before exposing later seeds."""
+    if evaluation.partition == "selection":
+        return
+    assert evaluation.prerequisite_summary_path is not None
+    prerequisite = _load_comparison(
+        _resolve(root, evaluation.prerequisite_summary_path)
+    )
+    expected_partition = (
+        "selection" if evaluation.partition == "confirmation" else "confirmation"
+    )
+    if prerequisite.partition != expected_partition:
+        raise ValueError("evaluation prerequisite is from the wrong partition")
+    if prerequisite.fine_tuned_checkpoint_sha256 != child_manifest.checkpoint_sha256:
+        raise ValueError("evaluation prerequisite is for another child checkpoint")
+    if not prerequisite.candidate_better:
+        raise ValueError("evaluation prerequisite did not pass its candidate gate")
 
 
 def _run_policy(
@@ -186,7 +218,13 @@ def run_fine_tune_comparison(
     child_manifest, child_policy = _verify_child(
         root, evaluation, fine_config, verified
     )
+    verify_evaluation_prerequisite(root, evaluation, child_manifest)
     seeds = _partition_seeds(fine_config, evaluation.partition)
+    gate_path = _resolve(root, fine_config.output_directory) / (
+        f"{evaluation.partition}-gate-v1.json"
+    )
+    if gate_path.exists():
+        raise FileExistsError("evaluation gate already exists for this child policy")
     git_commit, _ = capture_git_state(root)
     run_directory = create_run_directory(
         _resolve(root, evaluation.output_directory),
@@ -234,4 +272,5 @@ def run_fine_tune_comparison(
         output_directory=run_directory.relative_to(root),
     )
     write_json_atomic(run_directory / "fine-tune-comparison-v1.json", summary)
+    write_json_atomic(gate_path, summary)
     return summary

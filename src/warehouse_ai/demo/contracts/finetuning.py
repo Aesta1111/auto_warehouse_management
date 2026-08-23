@@ -178,7 +178,16 @@ class FineTuneEvaluationConfig(DemoModel):
     fine_tune_checkpoint_path: RepositoryPath
     fine_tune_manifest_path: RepositoryPath
     partition: Literal["selection", "confirmation", "final"]
+    prerequisite_summary_path: RepositoryPath | None = None
     output_directory: RepositoryPath
+
+    @model_validator(mode="after")
+    def validate_prerequisite(self) -> Self:
+        if self.partition == "selection" and self.prerequisite_summary_path is not None:
+            raise ValueError("selection cannot consume a prerequisite summary")
+        if self.partition != "selection" and self.prerequisite_summary_path is None:
+            raise ValueError("confirmation and final require a prerequisite summary")
+        return self
 
 
 class FineTunePolicyEvaluation(DemoModel):

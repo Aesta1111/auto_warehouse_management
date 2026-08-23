@@ -105,6 +105,11 @@ def test_committed_versioned_configs_load() -> None:
         "final",
     )
 
+    confirmation = fine_tune_evaluations[1].model_dump()
+    confirmation["prerequisite_summary_path"] = None
+    with pytest.raises(ValueError, match="require a prerequisite summary"):
+        FineTuneEvaluationConfig.model_validate(confirmation)
+
 
 def test_gemma_fine_tune_config_rejects_overlapping_partitions() -> None:
     config = load_yaml_config(
