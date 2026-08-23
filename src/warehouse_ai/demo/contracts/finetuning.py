@@ -99,6 +99,7 @@ class FineTuneTrainingSummary(DemoModel):
     effect_violations: NonNegativeInt
     failure_counts: dict[str, NonNegativeInt]
     directive_counts: dict[str, NonNegativeInt]
+    reference_kl_max: NonNegativeFloat
     latency_median_ms: NonNegativeFloat | None = None
     latency_p95_ms: NonNegativeFloat | None = None
 
@@ -114,6 +115,9 @@ class GemmaFineTuneManifest(DemoModel):
     parent_checkpoint_sha256: Sha256
     parent_manifest_sha256: Sha256
     checkpoint_sha256: Sha256
+    architecture_sha256: Sha256
+    implementation_sha256: Sha256
+    model_implementation_version: NonBlankStr
     prompt_contract_sha256: Sha256
     preflight_report_sha256: Sha256
     model_file_sha256: Sha256

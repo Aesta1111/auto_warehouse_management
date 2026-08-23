@@ -50,6 +50,7 @@ class GymEnv(gym.Env[NDArray[np.float32], Any]):
         self.wrapper = TarwareEnvWrapper(environment_id)
         self._episode_index = 0
         self._step_count = 0
+        self._current_seed = seeds[0]
         initial = self.wrapper.reset(seed=seeds[0])
         self.observation_space = gym.spaces.Box(
             low=-np.inf,
@@ -62,6 +63,14 @@ class GymEnv(gym.Env[NDArray[np.float32], Any]):
     @property
     def context(self) -> WarehouseContext:
         return WarehouseContext.capture(self.wrapper)
+
+    @property
+    def current_seed(self) -> int:
+        return self._current_seed
+
+    @property
+    def step_count(self) -> int:
+        return self._step_count
 
     def action_masks(self) -> NDArray[np.bool_]:
         return self.registry.action_mask(self.context).copy()
@@ -81,6 +90,7 @@ class GymEnv(gym.Env[NDArray[np.float32], Any]):
         )
         self._episode_index += 1
         self._step_count = 0
+        self._current_seed = selected_seed
         return self.wrapper.reset(seed=selected_seed).encode(), {}
 
     def step(
