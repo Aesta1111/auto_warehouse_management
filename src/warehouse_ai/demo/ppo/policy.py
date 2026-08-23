@@ -173,12 +173,14 @@ class PpoPolicy:
             int(_number(values, "directive_count")),
             int(_number(values, "hidden_size")),
         )
-        if manifest.architecture_sha256 != architecture_digest(*dimensions):
+        if manifest.architecture_sha256 != architecture_digest(
+            dimensions[0], dimensions[1], (dimensions[2],)
+        ):
             raise ValueError("PPO architecture digest does not match manifest")
         module = PpoModel(
             observation_size=dimensions[0],
             directive_count=dimensions[1],
-            hidden_size=dimensions[2],
+            hidden_sizes=(dimensions[2],),
             learning_rate=_number(values, "learning_rate"),
             clip_range=_number(values, "clip_range"),
             entropy_coefficient=_number(values, "entropy_coefficient"),

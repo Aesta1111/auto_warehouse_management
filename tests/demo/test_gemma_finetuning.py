@@ -82,7 +82,7 @@ def _parent(catalog: DirectiveCatalog, observation_size: int) -> PpoPolicy:
     model = PpoModel(
         observation_size=observation_size,
         directive_count=catalog.size,
-        hidden_size=64,
+        hidden_sizes=(64,),
         learning_rate=3e-4,
         clip_range=0.2,
         entropy_coefficient=0.01,

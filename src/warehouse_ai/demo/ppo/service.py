@@ -49,7 +49,7 @@ def train_directive_ppo(
     model = PpoModel(
         observation_size=int(observation_shape[0]),
         directive_count=catalog.size,
-        hidden_size=HIDDEN_SIZE,
+        hidden_sizes=(HIDDEN_SIZE,),
         learning_rate=config.learning_rate,
         clip_range=config.clip_range,
         entropy_coefficient=config.entropy_coefficient,

@@ -80,7 +80,7 @@ def warm_start_model(
     model = PpoModel(
         observation_size=parent.observation_size,
         directive_count=parent.directive_count,
-        hidden_size=parent.hidden_size,
+        hidden_sizes=parent.hidden_sizes,
         learning_rate=config.learning_rate,
         clip_range=config.clip_range,
         entropy_coefficient=config.entropy_coefficient,
@@ -110,14 +110,16 @@ def load_fine_tuned_policy(
         int(values["directive_count"]),
         int(values["hidden_size"]),
     )
-    if manifest.architecture_sha256 != architecture_digest(*dimensions):
+    if manifest.architecture_sha256 != architecture_digest(
+        dimensions[0], dimensions[1], (dimensions[2],)
+    ):
         raise ValueError("fine-tuned PPO architecture digest does not match")
     if manifest.implementation_sha256 != implementation_digest():
         raise ValueError("fine-tuned PPO implementation digest does not match")
     model = PpoModel(
         observation_size=dimensions[0],
         directive_count=dimensions[1],
-        hidden_size=dimensions[2],
+        hidden_sizes=(dimensions[2],),
         learning_rate=float(values["learning_rate"]),
         clip_range=float(values["clip_range"]),
         entropy_coefficient=float(values["entropy_coefficient"]),
@@ -282,7 +284,7 @@ class GemmaFineTuneLoop:
             parent_manifest_sha256=identity.parent_manifest_sha256,
             checkpoint_sha256=sha256_file(checkpoint),
             architecture_sha256=architecture_digest(
-                observation_size, environment.catalog.size, HIDDEN_SIZE
+                observation_size, environment.catalog.size, (HIDDEN_SIZE,)
             ),
             implementation_sha256=implementation_digest(),
             model_implementation_version=MODEL_IMPLEMENTATION_VERSION,

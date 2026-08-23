@@ -239,7 +239,7 @@ class PpoTrainingLoop:
             gae_version=config.gae_version,
             loss_version=config.loss_version,
             architecture_sha256=architecture_digest(
-                observation_size, environment.catalog.size, HIDDEN_SIZE
+                observation_size, environment.catalog.size, (HIDDEN_SIZE,)
             ),
             implementation_sha256=implementation_digest(),
             git_commit=git_commit,
