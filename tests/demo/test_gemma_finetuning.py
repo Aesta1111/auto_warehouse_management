@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import cast
 from uuid import uuid4
 
+import pytest
 import torch
 
 from warehouse_ai.demo.contracts.base import load_yaml_config
@@ -18,9 +19,9 @@ from warehouse_ai.demo.contracts.ppo import PpoManifest
 from warehouse_ai.demo.directives import Registry, build_registry
 from warehouse_ai.demo.inference.actioner import Actioner
 from warehouse_ai.demo.ppo.finetuning import (
-    CHECKPOINT_NAME,
     FineTuneArtifactIdentity,
     GemmaFineTuneLoop,
+    checkpoint_name,
     load_fine_tuned_policy,
     warm_start_model,
 )
@@ -58,7 +59,7 @@ class ValidActioner:
 
 def _config() -> GemmaFineTuneConfig:
     original = load_yaml_config(
-        ROOT / "configs/demo/directive-ppo-gemma-finetune-v1.yaml",
+        ROOT / "configs/demo/directive-ppo-gemma-finetune-v2.yaml",
         GemmaFineTuneConfig,
     )
     values = original.model_dump()
@@ -82,7 +83,7 @@ def _parent(catalog: DirectiveCatalog, observation_size: int) -> PpoPolicy:
     model = PpoModel(
         observation_size=observation_size,
         directive_count=catalog.size,
-        hidden_sizes=(64,),
+        hidden_sizes=(32, 16),
         learning_rate=3e-4,
         clip_range=0.2,
         entropy_coefficient=0.01,
@@ -104,6 +105,7 @@ def test_warm_start_preserves_every_parent_parameter() -> None:
         for name, value in parent_state.items()
     )
     assert model.learning_rate == 3e-5
+    assert model.hidden_sizes == (32, 16)
 
 
 def test_two_step_fake_fine_tune_saves_reloadable_child_checkpoint() -> None:
@@ -138,7 +140,7 @@ def test_two_step_fake_fine_tune_saves_reloadable_child_checkpoint() -> None:
             parent_manifest,
         )
         loaded = load_fine_tuned_policy(
-            output / CHECKPOINT_NAME,
+            output / checkpoint_name(config.schema_version),
             catalog,
             parent_manifest,
             manifest,
@@ -146,7 +148,24 @@ def test_two_step_fake_fine_tune_saves_reloadable_child_checkpoint() -> None:
 
         assert manifest.training.completed_environment_steps == 2
         assert manifest.training.gemma_calls <= 2
+        assert manifest.schema_version == 2
+        assert manifest.hyperparameters["hidden_sizes"] == [32, 16]
         assert loaded.checkpoint_sha256 == manifest.checkpoint_sha256
+        bad_manifest = manifest.model_copy(
+            update={
+                "hyperparameters": {
+                    **manifest.hyperparameters,
+                    "hidden_sizes": [64],
+                }
+            }
+        )
+        with pytest.raises(ValueError, match="architecture digest"):
+            load_fine_tuned_policy(
+                output / checkpoint_name(config.schema_version),
+                catalog,
+                parent_manifest,
+                bad_manifest,
+            )
     finally:
         environment.close()
         for artifact in output.iterdir():

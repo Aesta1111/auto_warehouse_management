@@ -1,0 +1,50 @@
+schema_version: 2
+environment_id: tarware-tiny-3agvs-2pickers-partialobs-v1
+vocabulary_path: configs/demo/directives-v1.yaml
+parent_checkpoint_path: results/demo/directive-ppo-v4/directive-ppo-v4.pt
+parent_manifest_path: results/demo/directive-ppo-v4/directive-ppo-manifest-v4.json
+prompt_spec_path: configs/demo/gemma-prompt-few-shot-v1.yaml
+preflight_report_path: results/demo/gemma-preflight-e4b-v4.json
+output_directory: results/demo/directive-ppo-gemma-finetune-v2
+train_seeds: [8100, 8101, 8102, 8103, 8104, 8105, 8106, 8107, 8108, 8109, 8110, 8111, 8112, 8113, 8114, 8115]
+selection_seeds: [8200, 8201]
+confirmation_seeds: [8202, 8203]
+final_evaluation_seeds: [9100]
+algorithm_seed: 8300
+episode_steps: 500
+total_timesteps: 1024
+learning_rate: 0.00003
+n_steps: 256
+batch_size: 64
+n_epochs: 4
+gamma: 0.99
+gae_lambda: 0.95
+clip_range: 0.2
+entropy_coefficient: 0.01
+value_coefficient: 0.5
+max_grad_norm: 0.5
+normalize_advantage: true
+target_kl: 0.01
+max_reference_kl: 0.05
+fallback_penalty: 0.001
+reward_version: simulator-reward-minus-fallback-v1
+inference:
+  backend: llama_cpp
+  base_url: http://127.0.0.1:8080
+  model_id: google/gemma-4-E4B-it-qat-q4_0-gguf:Q4_0
+  model_file_sha256: "676c35070db6dbe52f93e9c864ee0fba4eddea94b9c875d9cb10daff453fbaee"
+  model_revision: 4b4a2c1d584be7264f87aac328a1bc739ce81b6c
+  model_filename: gemma-4-E4B_q4_0-it.gguf
+  quantization: GGUF Q4_0
+  runtime_version: b10569 (0.2.0-dev, CUDA 12.4, commit 5a32f7b66)
+  server_command: >-
+    llama-server.exe --model .local_runtime/models/gemma-4-E4B-it-qat-q4_0-gguf/gemma-4-E4B_q4_0-it.gguf
+    --alias google/gemma-4-E4B-it-qat-q4_0-gguf:Q4_0 --host 127.0.0.1 --port 8080
+    --ctx-size 4096 --gpu-layers 24 --parallel 1 --flash-attn auto --reasoning off
+    --reasoning-budget 0 --temp 0 --top-p 1
+  context_size: 4096
+  gpu_layers: 24
+  request_timeout_seconds: 12.0
+  max_new_tokens: 192
+  temperature: 0
+  seed: 0

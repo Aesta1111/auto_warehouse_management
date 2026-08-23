@@ -78,6 +78,11 @@ def _verify_child(
     manifest_path = _resolve(root, evaluation.fine_tune_manifest_path)
     checkpoint_path = _resolve(root, evaluation.fine_tune_checkpoint_path)
     manifest = _load_manifest(manifest_path)
+    if (
+        evaluation.schema_version != fine_config.schema_version
+        or manifest.schema_version != fine_config.schema_version
+    ):
+        raise ValueError("fine-tuning config, manifest, and evaluation versions differ")
     expected = (
         verified.parent_manifest.checkpoint_sha256,
         verified.identity.parent_manifest_sha256,
@@ -161,13 +166,15 @@ def _run_policy(
                     max_steps=config.episode_steps,
                     render=False,
                     decision_log_path=(
-                        run_directory / f"{label}-{mode}-seed-{seed}-v1.jsonl"
+                        run_directory
+                        / f"{label}-{mode}-seed-{seed}-v{config.schema_version}.jsonl"
                     ),
                 )
             finally:
                 wrapper.close()
             write_json_atomic(
-                run_directory / f"{label}-{mode}-seed-{seed}-summary-v1.json",
+                run_directory
+                / f"{label}-{mode}-seed-{seed}-summary-v{config.schema_version}.json",
                 result,
             )
             if mode == "executor":
@@ -220,15 +227,16 @@ def run_fine_tune_comparison(
     )
     verify_evaluation_prerequisite(root, evaluation, child_manifest)
     seeds = _partition_seeds(fine_config, evaluation.partition)
+    version = evaluation.schema_version
     gate_path = _resolve(root, fine_config.output_directory) / (
-        f"{evaluation.partition}-gate-v1.json"
+        f"{evaluation.partition}-gate-v{version}.json"
     )
     if gate_path.exists():
         raise FileExistsError("evaluation gate already exists for this child policy")
     git_commit, _ = capture_git_state(root)
     run_directory = create_run_directory(
         _resolve(root, evaluation.output_directory),
-        controller_name=f"gemma-finetune-{evaluation.partition}-v1",
+        controller_name=f"gemma-finetune-{evaluation.partition}-v{version}",
         created_at_utc=datetime.now(timezone.utc),
         git_commit=git_commit,
     )
@@ -259,6 +267,7 @@ def run_fine_tune_comparison(
     finally:
         backend.close()
     summary = FineTuneComparisonSummary(
+        schema_version=version,
         environment_id=fine_config.environment_id,
         partition=evaluation.partition,
         seeds=seeds,
@@ -271,6 +280,6 @@ def run_fine_tune_comparison(
         candidate_better=is_better_gemma_candidate(parent, child),
         output_directory=run_directory.relative_to(root),
     )
-    write_json_atomic(run_directory / "fine-tune-comparison-v1.json", summary)
+    write_json_atomic(run_directory / f"fine-tune-comparison-v{version}.json", summary)
     write_json_atomic(gate_path, summary)
     return summary

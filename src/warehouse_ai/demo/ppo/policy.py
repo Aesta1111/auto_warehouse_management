@@ -188,7 +188,7 @@ class PpoPolicy:
         if registry.behavior_digest() != manifest.behavior_sha256:
             raise ValueError("current directive semantics do not match manifest")
         if (
-            manifest.schema_version == 3
+            manifest.schema_version >= 3
             and registry.engine_version != manifest.behavior_engine_version
         ):
             raise ValueError("current directive engine version does not match manifest")

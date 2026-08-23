@@ -30,7 +30,7 @@ from warehouse_ai.demo.contracts.evaluation import EpisodeResult
 class GemmaFineTuneConfig(DemoModel):
     """One immutable warm-started PPO fine-tuning configuration."""
 
-    schema_version: Literal[1] = 1
+    schema_version: Literal[1, 2] = 1
     environment_id: NonBlankStr
     vocabulary_path: RepositoryPath
     parent_checkpoint_path: RepositoryPath
@@ -115,7 +115,7 @@ class FineTuneTrainingSummary(DemoModel):
 class GemmaFineTuneManifest(DemoModel):
     """Small provenance record for a fine-tuned PPO checkpoint."""
 
-    schema_version: Literal[1] = 1
+    schema_version: Literal[1, 2] = 1
     environment_id: NonBlankStr
     vocabulary_sha256: Sha256
     behavior_sha256: Sha256
@@ -173,7 +173,7 @@ class FineTuneStepRecord(DemoModel):
 
 
 class FineTuneEvaluationConfig(DemoModel):
-    schema_version: Literal[1] = 1
+    schema_version: Literal[1, 2] = 1
     fine_tune_config_path: RepositoryPath
     fine_tune_checkpoint_path: RepositoryPath
     fine_tune_manifest_path: RepositoryPath
@@ -205,7 +205,7 @@ class FineTunePolicyEvaluation(DemoModel):
 
 
 class FineTuneComparisonSummary(DemoModel):
-    schema_version: Literal[1] = 1
+    schema_version: Literal[1, 2] = 1
     environment_id: NonBlankStr
     partition: Literal["selection", "confirmation", "final"]
     seeds: tuple[int, ...]

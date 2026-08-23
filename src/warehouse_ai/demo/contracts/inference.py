@@ -130,7 +130,7 @@ class ModelHealth(DemoModel):
 
 
 class GemmaPreflightReport(DemoModel):
-    schema_version: Literal[1, 2, 3] = 2
+    schema_version: Literal[1, 2, 3, 4] = 2
     selected_model: Literal["e4b", "e2b"]
     backend: Literal["llama_cpp"] = "llama_cpp"
     model_id: NonBlankStr
@@ -170,8 +170,8 @@ class GemmaPreflightReport(DemoModel):
             raise ValueError("response counts cannot exceed measured_requests")
         if self.sensitivity_valid_pairs > self.sensitivity_pairs:
             raise ValueError("sensitivity_valid_pairs cannot exceed sensitivity_pairs")
-        if self.schema_version == 3 and self.prompt_contract_sha256 is None:
-            raise ValueError("schema-v3 preflight requires prompt_contract_sha256")
+        if self.schema_version >= 3 and self.prompt_contract_sha256 is None:
+            raise ValueError("schema-v3+ preflight requires prompt_contract_sha256")
         if self.schema_version < 3 and self.prompt_contract_sha256 is not None:
             raise ValueError(
                 "legacy preflight reports cannot contain prompt_contract_sha256"

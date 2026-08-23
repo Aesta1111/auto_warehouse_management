@@ -31,9 +31,16 @@ from warehouse_ai.demo.ppo.model import (
 from warehouse_ai.demo.ppo.policy import PpoPolicy, TorchPolicyAdapter
 
 
-HIDDEN_SIZE = 64
-CHECKPOINT_NAME = "directive-ppo-gemma-finetuned-v1.pt"
-PROGRESS_NAME = "fine-tune-progress-v1.pt"
+def checkpoint_name(schema_version: int) -> str:
+    return f"directive-ppo-gemma-finetuned-v{schema_version}.pt"
+
+
+def progress_name(schema_version: int) -> str:
+    return f"fine-tune-progress-v{schema_version}.pt"
+
+
+CHECKPOINT_NAME = checkpoint_name(1)
+PROGRESS_NAME = progress_name(1)
 
 
 @dataclass(frozen=True)
@@ -105,21 +112,31 @@ def load_fine_tuned_policy(
     if catalog.digest() != manifest.vocabulary_sha256:
         raise ValueError("fine-tuned PPO catalog digest does not match")
     values = manifest.hyperparameters
-    dimensions = (
-        int(values["observation_size"]),
-        int(values["directive_count"]),
-        int(values["hidden_size"]),
-    )
+    observation_size = int(values["observation_size"])
+    directive_count = int(values["directive_count"])
+    if manifest.schema_version == 2:
+        declared = values.get("hidden_sizes")
+        if not isinstance(declared, (list, tuple)) or not declared:
+            raise ValueError("fine-tuned PPO manifest requires hidden_sizes")
+        hidden_sizes = tuple(int(size) for size in declared)
+        if any(size <= 0 for size in hidden_sizes):
+            raise ValueError("fine-tuned PPO hidden_sizes must be positive")
+    else:
+        hidden_sizes = (int(values["hidden_size"]),)
     if manifest.architecture_sha256 != architecture_digest(
-        dimensions[0], dimensions[1], (dimensions[2],)
+        observation_size, directive_count, hidden_sizes
     ):
         raise ValueError("fine-tuned PPO architecture digest does not match")
-    if manifest.implementation_sha256 != implementation_digest():
+    if manifest.model_implementation_version != MODEL_IMPLEMENTATION_VERSION:
+        raise ValueError("fine-tuned PPO model implementation is unsupported")
+    if manifest.implementation_sha256 != implementation_digest(
+        manifest.model_implementation_version
+    ):
         raise ValueError("fine-tuned PPO implementation digest does not match")
     model = PpoModel(
-        observation_size=dimensions[0],
-        directive_count=dimensions[1],
-        hidden_sizes=(dimensions[2],),
+        observation_size=observation_size,
+        directive_count=directive_count,
+        hidden_sizes=hidden_sizes,
         learning_rate=float(values["learning_rate"]),
         clip_range=float(values["clip_range"]),
         entropy_coefficient=float(values["entropy_coefficient"]),
@@ -183,8 +200,8 @@ class GemmaFineTuneLoop:
         collector = RolloutCollector()
         completed_steps = optimizer_steps = 0
         maximum_reference_kl = 0.0
-        checkpoint = output_directory / CHECKPOINT_NAME
-        progress = output_directory / PROGRESS_NAME
+        checkpoint = output_directory / checkpoint_name(config.schema_version)
+        progress = output_directory / progress_name(config.schema_version)
 
         while completed_steps < config.total_timesteps:
             collector.collect(
@@ -241,6 +258,7 @@ class GemmaFineTuneLoop:
             optimizer_steps,
             maximum_reference_kl,
             int(shape[0]),
+            model.hidden_sizes,
         )
 
     @staticmethod
@@ -254,12 +272,12 @@ class GemmaFineTuneLoop:
         optimizer_steps: int,
         reference_kl_max: float,
         observation_size: int,
+        hidden_sizes: tuple[int, ...],
     ) -> GemmaFineTuneManifest:
         git_commit, dirty = capture_git_state(_repository_root())
         hyperparameters = {
             "observation_size": observation_size,
             "directive_count": environment.catalog.size,
-            "hidden_size": HIDDEN_SIZE,
             "learning_rate": config.learning_rate,
             "n_steps": config.n_steps,
             "batch_size": config.batch_size,
@@ -275,7 +293,14 @@ class GemmaFineTuneLoop:
             "max_reference_kl": config.max_reference_kl,
             "declared_total_timesteps": config.total_timesteps,
         }
+        if config.schema_version == 2:
+            hyperparameters["hidden_sizes"] = list(hidden_sizes)
+        else:
+            if len(hidden_sizes) != 1:
+                raise ValueError("schema-v1 fine-tuning requires one hidden layer")
+            hyperparameters["hidden_size"] = hidden_sizes[0]
         return GemmaFineTuneManifest(
+            schema_version=config.schema_version,
             environment_id=config.environment_id,
             vocabulary_sha256=environment.catalog.digest(),
             behavior_sha256=environment.registry.behavior_digest(),
@@ -284,9 +309,9 @@ class GemmaFineTuneLoop:
             parent_manifest_sha256=identity.parent_manifest_sha256,
             checkpoint_sha256=sha256_file(checkpoint),
             architecture_sha256=architecture_digest(
-                observation_size, environment.catalog.size, (HIDDEN_SIZE,)
+                observation_size, environment.catalog.size, hidden_sizes
             ),
-            implementation_sha256=implementation_digest(),
+            implementation_sha256=implementation_digest(MODEL_IMPLEMENTATION_VERSION),
             model_implementation_version=MODEL_IMPLEMENTATION_VERSION,
             prompt_contract_sha256=identity.prompt_contract_sha256,
             preflight_report_sha256=identity.preflight_report_sha256,

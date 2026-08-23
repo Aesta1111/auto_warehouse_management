@@ -42,13 +42,25 @@ def test_committed_versioned_configs_load() -> None:
     ppo_v4 = load_yaml_config(ROOT / "configs/demo/directive-ppo-v4.yaml", PpoConfig)
     demo_v2 = load_yaml_config(ROOT / "configs/demo/directive-demo-v2.yaml", DemoConfig)
     demo_v3 = load_yaml_config(ROOT / "configs/demo/directive-demo-v3.yaml", DemoConfig)
+    demo_v4 = load_yaml_config(ROOT / "configs/demo/directive-demo-v4.yaml", DemoConfig)
     fine_tune = load_yaml_config(
         ROOT / "configs/demo/directive-ppo-gemma-finetune-v1.yaml",
+        GemmaFineTuneConfig,
+    )
+    fine_tune_v2 = load_yaml_config(
+        ROOT / "configs/demo/directive-ppo-gemma-finetune-v2.yaml",
         GemmaFineTuneConfig,
     )
     fine_tune_evaluations = tuple(
         load_yaml_config(
             ROOT / f"configs/demo/directive-ppo-gemma-eval-{partition}-v1.yaml",
+            FineTuneEvaluationConfig,
+        )
+        for partition in ("selection", "confirmation", "final")
+    )
+    fine_tune_evaluations_v2 = tuple(
+        load_yaml_config(
+            ROOT / f"configs/demo/directive-ppo-gemma-eval-{partition}-v2.yaml",
             FineTuneEvaluationConfig,
         )
         for partition in ("selection", "confirmation", "final")
@@ -96,16 +108,29 @@ def test_committed_versioned_configs_load() -> None:
     assert demo_v3.prompt_spec_path == Path(
         "configs/demo/gemma-prompt-few-shot-v1.yaml"
     )
+    assert demo_v4.schema_version == 4
+    assert demo_v4.ppo_manifest_path == Path(
+        "results/demo/directive-ppo-v4/directive-ppo-manifest-v4.json"
+    )
     assert fine_tune.total_timesteps == 1_024
     assert fine_tune.n_steps == 256
     assert fine_tune.fallback_penalty == pytest.approx(0.001)
     assert fine_tune.selection_seeds == (8200, 8201)
     assert fine_tune.confirmation_seeds == (8202, 8203)
     assert fine_tune.final_evaluation_seeds == (9100,)
+    assert fine_tune_v2.schema_version == 2
+    assert fine_tune_v2.parent_checkpoint_path == Path(
+        "results/demo/directive-ppo-v4/directive-ppo-v4.pt"
+    )
     assert tuple(item.partition for item in fine_tune_evaluations) == (
         "selection",
         "confirmation",
         "final",
+    )
+    assert tuple(item.schema_version for item in fine_tune_evaluations_v2) == (
+        2,
+        2,
+        2,
     )
 
     confirmation = fine_tune_evaluations[1].model_dump()

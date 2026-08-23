@@ -68,7 +68,7 @@ class EpisodeResult(DemoModel):
 
 
 class DemoRunSummary(DemoModel):
-    schema_version: Literal[2, 3]
+    schema_version: Literal[2, 3, 4]
     demo_only: Literal[True]
     environment_id: NonBlankStr
     seed: int
@@ -92,15 +92,15 @@ class DemoRunSummary(DemoModel):
             raise ValueError("executor_episode must use ppo_executor")
         if self.gemma_episode.controller != "ppo_gemma":
             raise ValueError("gemma_episode must use ppo_gemma")
-        if self.schema_version == 3 and self.prompt_contract_sha256 is None:
-            raise ValueError("schema-v3 summary requires prompt_contract_sha256")
+        if self.schema_version >= 3 and self.prompt_contract_sha256 is None:
+            raise ValueError("schema-v3+ summary requires prompt_contract_sha256")
         if self.schema_version == 2 and self.prompt_contract_sha256 is not None:
             raise ValueError("schema-v2 summary cannot identify a prompt contract")
         return self
 
 
 class DemoConfig(DemoModel):
-    schema_version: Literal[2, 3]
+    schema_version: Literal[2, 3, 4]
     environment_id: NonBlankStr
     episode_seed: int = 9100
     episode_steps: PositiveInt = 500
@@ -118,8 +118,8 @@ class DemoConfig(DemoModel):
 
     @model_validator(mode="after")
     def validate_prompt_version(self) -> Self:
-        if self.schema_version == 3 and self.prompt_spec_path is None:
-            raise ValueError("schema-v3 demo config requires prompt_spec_path")
+        if self.schema_version >= 3 and self.prompt_spec_path is None:
+            raise ValueError("schema-v3+ demo config requires prompt_spec_path")
         if self.schema_version == 2 and self.prompt_spec_path is not None:
             raise ValueError("schema-v2 demo config cannot select a prompt spec")
         return self

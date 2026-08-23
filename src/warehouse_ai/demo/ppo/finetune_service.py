@@ -20,6 +20,7 @@ from warehouse_ai.demo.inference.prompting import GemmaPromptBuilder
 from warehouse_ai.demo.ppo.finetuning import (
     FineTuneArtifactIdentity,
     GemmaFineTuneLoop,
+    checkpoint_name,
     warm_start_model,
 )
 from warehouse_ai.demo.ppo.gemma_environment import GemmaGymEnv
@@ -65,8 +66,11 @@ def verify_fine_tune_artifacts(
     prompt_digest = prompt_builder.contract_digest
     if prompt_digest is None:
         raise ValueError("Gemma fine-tuning requires a versioned prompt contract")
-    if parent_manifest.schema_version != 3:
-        raise ValueError("Gemma fine-tuning requires a schema-v3 PPO parent")
+    expected_schema = config.schema_version + 2
+    if parent_manifest.schema_version != expected_schema:
+        raise ValueError(
+            "Gemma fine-tuning requires its version-matched PPO parent schema"
+        )
     if parent_manifest.environment_id != config.environment_id:
         raise ValueError("parent PPO environment does not match fine-tuning config")
     expected = (catalog.digest(), registry.behavior_digest(), registry.engine_version)
@@ -85,11 +89,11 @@ def verify_fine_tune_artifacts(
             "selection and confirmation must partition parent validation seeds"
         )
     if (
-        preflight.schema_version != 3
+        preflight.schema_version != expected_schema
         or not preflight.passed
         or preflight.prompt_contract_sha256 != prompt_digest
     ):
-        raise ValueError("fine-tuning requires a passing exact schema-v3 preflight")
+        raise ValueError("fine-tuning requires a passing exact versioned preflight")
     inference = config.inference
     if (
         preflight.model_id != inference.model_id
@@ -123,9 +127,10 @@ def run_gemma_fine_tune(
     root = repository_root.resolve()
     verified = verify_fine_tune_artifacts(config, root)
     output = _resolve(root, config.output_directory)
-    final_checkpoint = output / "directive-ppo-gemma-finetuned-v1.pt"
-    manifest_path = output / "directive-ppo-gemma-finetune-manifest-v1.json"
-    step_log = output / "fine-tune-steps-v1.jsonl"
+    version = config.schema_version
+    final_checkpoint = output / checkpoint_name(version)
+    manifest_path = output / f"directive-ppo-gemma-finetune-manifest-v{version}.json"
+    step_log = output / f"fine-tune-steps-v{version}.jsonl"
     if any(path.exists() for path in (final_checkpoint, manifest_path, step_log)):
         raise FileExistsError(
             "fine-tuning output already exists; choose a new directory"

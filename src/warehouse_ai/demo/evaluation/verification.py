@@ -74,8 +74,11 @@ def verify_demo_artifacts(
             resolve_path(repository_root, config.prompt_spec_path), catalog
         )
     )
-    if manifest.schema_version != 3 or probe.schema_version != 2:
-        raise ValueError("demo v2 requires PPO schema v3 and probe schema v2")
+    expected_ppo_schema = 4 if config.schema_version == 4 else 3
+    if manifest.schema_version != expected_ppo_schema or probe.schema_version != 2:
+        raise ValueError(
+            "demo config requires its versioned PPO schema and probe schema v2"
+        )
     if manifest.environment_id != config.environment_id:
         raise ValueError("PPO environment does not match demo config")
     behavior_digest = registry.behavior_digest()
