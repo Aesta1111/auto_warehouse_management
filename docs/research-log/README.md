@@ -36,6 +36,7 @@ Add completed entries below in chronological order:
 | 2026-08-22 | Directive-demo architecture refactor and matched run | Refactor gates pass; E4B matched run completes but falls back on 361 effect violations | [Entry](2026-08-22-directive-demo-refactor-v2.md) |
 | 2026-08-23 | Directive-demo PPO/Gemma full run | Parent, adaptation, matched demo, selection, and confirmation completed; confirmation rejects child and blocks final seed | [Entry](2026-08-23-directive-ppo-gemma-full-run.md) |
 | 2026-08-24 | Qwen3.5-2B actioner and larger PPO refresh | Pinned Q8 runtime and CUDA Torch smoke tests pass; full 100k/4096 run remains pending | [Entry](2026-08-24-qwen3.5-2b-ppo-refresh.md) |
+| 2026-08-24 | Heuristic baseline on Qwen selection seeds | Heuristic completed 20/25 tasks on seeds 8200/8201 with 0% measured GPU use | [Entry](2026-08-24-qwen-selection-heuristic-baseline.md) |
 | 2026-08-24 | Per-directive LLM prompt contract | Three directive-specific templates pass static gates; wait remains deterministic and no experiment result is produced | [Entry](2026-08-24-per-directive-llm-prompts.md) |
 | 2026-08-24 | Qwen3.5-2B refreshed directive demo run | Parent PPO passes; semantic Qwen preflight fails and blocks fine-tuning/evaluation | [Entry](2026-08-24-qwen3.5-2b-full-demo-run.md) |
 | 2026-08-24 | Qwen action-grounding fix | Safe candidate actions reach 8/8 validity; class coverage and sensitivity gates remain blocked | [Entry](2026-08-24-qwen-action-grounding-fix.md) |
