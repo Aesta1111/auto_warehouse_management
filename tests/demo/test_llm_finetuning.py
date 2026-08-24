@@ -18,6 +18,7 @@ from warehouse_ai.demo.contracts.inference import (
 from warehouse_ai.demo.contracts.ppo import PpoManifest
 from warehouse_ai.demo.directives import Registry, build_registry
 from warehouse_ai.demo.inference.actioner import Actioner
+from warehouse_ai.demo.ppo import finetuning as finetuning_module
 from warehouse_ai.demo.ppo.finetuning import (
     FineTuneArtifactIdentity,
     LlmFineTuneLoop,
@@ -166,6 +167,54 @@ def test_two_step_fake_fine_tune_saves_reloadable_child_checkpoint() -> None:
                 catalog,
                 parent_manifest,
                 bad_manifest,
+            )
+    finally:
+        environment.close()
+        for artifact in output.iterdir():
+            artifact.unlink()
+        output.rmdir()
+
+
+def test_reference_kl_failure_reports_measurement_and_progress(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _config().model_copy(update={"max_reference_kl": 0.05})
+    catalog = DirectiveCatalog.load(ROOT / "configs/demo/directive-catalog.yaml")
+    registry = build_registry(catalog)
+    actioner = ValidActioner(registry)
+    environment = LlmGymEnv(
+        ENVIRONMENT_ID,
+        catalog,
+        registry,
+        config.train_seeds,
+        cast(Actioner, actioner),
+        episode_steps=config.episode_steps,
+        fallback_penalty=config.fallback_penalty,
+    )
+    actioner.environment = environment
+    observation_shape = environment.observation_space.shape
+    assert observation_shape is not None
+    parent = _parent(catalog, int(observation_shape[0]))
+    parent_manifest = PpoManifest.model_construct(checkpoint_sha256="1" * 64)
+    output = ROOT / "results" / f".test-finetune-{uuid4().hex}"
+    output.mkdir(parents=False)
+    monkeypatch.setattr(finetuning_module, "_reference_kl", lambda *_: 0.1234567)
+    try:
+        with pytest.raises(
+            RuntimeError,
+            match=(
+                r"measured=0\.123457, limit=0\.050000, "
+                r"completed_environment_steps=2, optimizer_steps=2"
+            ),
+        ):
+            LlmFineTuneLoop().fit(
+                warm_start_model(config, catalog, parent),
+                warm_start_model(config, catalog, parent),
+                config,
+                environment,
+                output,
+                FineTuneArtifactIdentity("2" * 64, "3" * 64, "4" * 64),
+                parent_manifest,
             )
     finally:
         environment.close()

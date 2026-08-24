@@ -248,7 +248,13 @@ class LlmFineTuneLoop:
             rollout_kl = _reference_kl(module, reference_model, buffer)
             maximum_reference_kl = max(maximum_reference_kl, rollout_kl)
             if rollout_kl > config.max_reference_kl:
-                raise RuntimeError("fine-tuned PPO exceeded max_reference_kl")
+                raise RuntimeError(
+                    "fine-tuned PPO exceeded max_reference_kl: "
+                    f"measured={rollout_kl:.6f}, "
+                    f"limit={config.max_reference_kl:.6f}, "
+                    f"completed_environment_steps={completed_steps}, "
+                    f"optimizer_steps={optimizer_steps}"
+                )
             fabric.save(
                 progress,
                 {
