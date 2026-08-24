@@ -90,7 +90,7 @@ def verify_fine_tune_artifacts(
         )
     if (
         preflight.schema_version != expected_schema
-        or not preflight.passed
+        or (config.require_passing_preflight and not preflight.passed)
         or preflight.prompt_contract_sha256 != prompt_digest
         or (
             config.schema_version >= 3

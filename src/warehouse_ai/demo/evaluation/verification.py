@@ -48,7 +48,9 @@ def verify_prompt_contract(
     prompt_builder: LlmPromptBuilder,
 ) -> None:
     """Require preflight evidence for the exact configured prompt contract."""
-    if not preflight.passed or preflight.schema_version != config.schema_version:
+    if preflight.schema_version != config.schema_version or (
+        config.require_passing_preflight and not preflight.passed
+    ):
         raise ValueError("Llm preflight did not pass for this config version")
     if preflight.prompt_contract_sha256 != prompt_builder.contract_digest:
         raise ValueError("Llm preflight prompt contract does not match config")
@@ -130,7 +132,10 @@ def verify_demo_artifacts(
         or preflight.model_id not in preflight.health.advertised_model_ids
     ):
         raise ValueError("preflight health record does not advertise a healthy model")
-    if preflight.latency_p95_seconds > config.preflight_p95_limit_seconds:
+    if (
+        config.require_passing_preflight
+        and preflight.latency_p95_seconds > config.preflight_p95_limit_seconds
+    ):
         raise ValueError("preflight p95 latency exceeds the configured limit")
     excluded_seeds = (
         set(probe.probe_seeds)

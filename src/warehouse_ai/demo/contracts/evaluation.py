@@ -112,6 +112,7 @@ class DemoConfig(DemoModel):
     ppo_manifest_path: RepositoryPath
     selected_model: Literal["e4b", "e2b", "qwen3.5-2b-q8"]
     preflight_report_path: RepositoryPath
+    require_passing_preflight: bool = True
     output_directory: RepositoryPath
     inference: LlamaCppBackendConfig
     preflight_p95_limit_seconds: PositiveFloat = 3.92

@@ -119,6 +119,7 @@ class PpoFineTuningRunConfig(DemoModel):
     parent_checkpoint_path: RepositoryPath
     parent_manifest_path: RepositoryPath
     preflight_report_path: RepositoryPath
+    require_passing_preflight: bool = True
     output_directory: RepositoryPath
     train_seeds: tuple[int, ...]
     selection_seeds: tuple[int, ...]
@@ -261,6 +262,7 @@ class LoadedPpoEvaluationRun:
             ppo_manifest_path=parent.parent_manifest_path,
             selected_model=actioner.selected_model,
             preflight_report_path=parent.preflight_report_path,
+            require_passing_preflight=parent.require_passing_preflight,
             output_directory=self.run.output_directory,
             inference=actioner.inference,
             preflight_p95_limit_seconds=actioner.preflight_p95_limit_seconds,
@@ -348,6 +350,7 @@ def load_ppo_fine_tuning_run(
         parent_manifest_path=run.parent_manifest_path,
         prompt_spec_path=actioner.prompt_spec_path,
         preflight_report_path=run.preflight_report_path,
+        require_passing_preflight=run.require_passing_preflight,
         output_directory=run.output_directory,
         train_seeds=run.train_seeds,
         selection_seeds=run.selection_seeds,

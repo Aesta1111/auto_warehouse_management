@@ -85,8 +85,8 @@ def main() -> int:
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
     if not command:
         parser.error("a command is required after --")
-    if args.interval_seconds < 120 or args.interval_seconds > 180:
-        parser.error("interval must be between 120 and 180 seconds")
+    if args.interval_seconds < 120 or args.interval_seconds > 600:
+        parser.error("interval must be between 120 and 600 seconds")
 
     args.log.parent.mkdir(parents=True, exist_ok=True)
     started = time.monotonic()

@@ -314,6 +314,7 @@ class LlmFineTuneLoop:
             "normalize_advantage": config.normalize_advantage,
             "target_kl": config.target_kl,
             "max_reference_kl": config.max_reference_kl,
+            "require_passing_preflight": config.require_passing_preflight,
             "declared_total_timesteps": config.total_timesteps,
         }
         if config.schema_version >= 2:

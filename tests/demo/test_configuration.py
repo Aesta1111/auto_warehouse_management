@@ -52,6 +52,9 @@ def test_five_composed_configs_load_with_descriptive_names() -> None:
     assert fine_tuning.run.total_timesteps == 4_096
     assert fine_tuning.run.accelerator == "cuda"
     assert fine_tuning.run.max_reference_kl == 0.20
+    assert not fine_tuning.run.require_passing_preflight
+    assert not fine_tuning.runtime.require_passing_preflight
+    assert not evaluation.demo_runtime().require_passing_preflight
     assert evaluation.run.matched_demo_seed == 9300
     assert evaluation.run.final_evaluation_seed == 9200
 

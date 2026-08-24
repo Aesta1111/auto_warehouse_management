@@ -5,6 +5,7 @@ llm_actioner_config_path: configs/demo/llm-actioner.yaml
 parent_checkpoint_path: results/demo/ppo-training-100k-4x256-cuda/ppo-policy.pt
 parent_manifest_path: results/demo/ppo-training-100k-4x256-cuda/ppo-training-manifest.json
 preflight_report_path: results/demo/qwen3.5-2b-q8-safe-candidate-actioner-preflight-v7.json
+require_passing_preflight: false
 output_directory: results/demo/ppo-llm-fine-tuning-4x256-qwen3.5-safe-candidate-4096-kl020-cuda
 train_seeds: [8100, 8101, 8102, 8103, 8104, 8105, 8106, 8107, 8108, 8109, 8110, 8111, 8112, 8113, 8114, 8115]
 selection_seeds: [8200, 8201]

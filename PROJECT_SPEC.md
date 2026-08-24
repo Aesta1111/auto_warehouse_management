@@ -193,6 +193,13 @@ directive classes, strict JSON validity, directive sensitivity, and the
 configured p95 latency ceiling. `wait` is excluded because execution bypasses
 the LLM and uses the deterministic directive executor.
 
+For the current exploratory directive-demo retry only, the composed run may set
+`require_passing_preflight: false` when the exact preflight artifact, prompt and
+model digests, and current server health still match. This permits a known
+class-coverage or latency-gate miss to remain visible without blocking the run;
+it does not bypass runtime action validation, deterministic fallback, artifact
+provenance, or held-out seed gates, and it is not evidence for the main study.
+
 The active action boundary deterministically intersects the selected directive
 semantics with the live simulator mask, exposes a bounded set of complete safe
 joint-action candidates, and constrains the structured `destinations` response

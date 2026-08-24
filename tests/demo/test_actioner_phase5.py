@@ -282,6 +282,12 @@ def test_preflight_fails_closed_on_prompt_contract_mismatch() -> None:
     )
     verify_prompt_contract(config, matching, builder)
 
+    incomplete = matching.model_copy(update={"passed": False})
+    verify_prompt_contract(config, incomplete, builder)
+    strict_config = config.model_copy(update={"require_passing_preflight": True})
+    with pytest.raises(ValueError, match="did not pass"):
+        verify_prompt_contract(strict_config, incomplete, builder)
+
     wrong_per_behavior = matching.model_copy(
         update={"prompt_template_sha256_by_behavior": {"placeholder": "0" * 64}}
     )

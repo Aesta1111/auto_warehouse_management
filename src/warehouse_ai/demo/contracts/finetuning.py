@@ -37,6 +37,7 @@ class LlmFineTuneConfig(DemoModel):
     parent_manifest_path: RepositoryPath
     prompt_spec_path: RepositoryPath
     preflight_report_path: RepositoryPath
+    require_passing_preflight: bool = True
     output_directory: RepositoryPath
     train_seeds: tuple[int, ...]
     selection_seeds: tuple[int, ...]
