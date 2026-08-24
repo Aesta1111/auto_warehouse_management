@@ -27,6 +27,6 @@ value_coefficient: 0.5
 max_grad_norm: 0.5
 normalize_advantage: true
 target_kl: 0.01
-max_reference_kl: 0.20
+max_reference_kl: 0.50
 fallback_penalty: 0.001
 reward_version: simulator-reward-minus-fallback-v1

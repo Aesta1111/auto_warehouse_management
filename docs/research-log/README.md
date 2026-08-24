@@ -39,3 +39,4 @@ Add completed entries below in chronological order:
 | 2026-08-24 | Per-directive LLM prompt contract | Three directive-specific templates pass static gates; wait remains deterministic and no experiment result is produced | [Entry](2026-08-24-per-directive-llm-prompts.md) |
 | 2026-08-24 | Qwen3.5-2B refreshed directive demo run | Parent PPO passes; semantic Qwen preflight fails and blocks fine-tuning/evaluation | [Entry](2026-08-24-qwen3.5-2b-full-demo-run.md) |
 | 2026-08-24 | Qwen action-grounding fix | Safe candidate actions reach 8/8 validity; class coverage and sensitivity gates remain blocked | [Entry](2026-08-24-qwen-action-grounding-fix.md) |
+| 2026-08-24 | Qwen3.5-2B frozen-LLM PPO adaptation | Adaptation reaches 4,096 steps but fails the max-reference-KL guard; later phases halted | [Entry](2026-08-24-qwen3.5-2b-adaptation-kl-stop.md) |
